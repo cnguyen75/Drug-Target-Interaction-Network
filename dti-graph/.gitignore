@@ -1,0 +1,99 @@
+# Virtual environment
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+
+# Data directories - ALL DATA FILES EXCLUDED
+data_raw/
+data/
+models/
+*.parquet
+*.gpickle
+*.feather
+*.csv
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+*.npy
+*.npz
+
+# Cache directories
+.ruff_cache/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Large files and archives
+*.zip
+*.xml
+*.gz
+*.tar
+*.rar
+*.7z
+*.bz2
+*.xz
+
+# Temporary files
+*.tmp
+*.temp
+*_temp.*
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-*
+.atom/
+
+# Logs
+*.log
+*.out
+*.err
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Jupyter (if needed in future)
+.ipynb_checkpoints/
+*.ipynb
+
+# Coverage reports
+htmlcov/
+.coverage
+coverage.xml
+*.cover
+
+# Documentation builds
+docs/_build/
+site/
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Screenshots (include these in Git)
+!screenshots/
+!screenshots/*.png
+!screenshots/*.jpg
+!screenshots/*.jpeg
+

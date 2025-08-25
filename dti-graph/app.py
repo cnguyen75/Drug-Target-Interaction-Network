@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 import dash
-from dash import dcc, html, Input, Output, callback_context
+from dash import dcc, html, Input, Output, State, callback_context
 import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
@@ -18,6 +18,7 @@ from plotly.subplots import make_subplots
 sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
 from pipeline.link_prediction import DTILinkPredictor
 from pipeline.drug_repurposing import DrugRepurposer
+from pipeline.advanced_analytics import DrugRepurposingAnalytics, NetworkAnalytics, PredictiveInsights
 
 # Initialize Dash app
 app = dash.Dash(__name__, title="DTI Explorer Pro - Plotly Edition")
@@ -63,11 +64,26 @@ try:
     print(f"Graph edges: {len(G.edges()):,} interactions")
     print(f"Note: Graph includes all entities (ML models will internally filter to connected nodes)")
     
+    # Load embeddings for advanced analytics
+    embeddings_df = None
+    embeddings_path = "data/embeddings_full.parquet"
+    print(f"Checking for embeddings at: {os.path.abspath(embeddings_path)}")
+    if os.path.exists(embeddings_path):
+        print("Loading embeddings for advanced analytics...")
+        try:
+            embeddings_df = pd.read_parquet(embeddings_path)
+            print(f"Loaded embeddings: {len(embeddings_df):,} nodes")
+        except Exception as e:
+            print(f"Error loading embeddings: {e}")
+            embeddings_df = None
+    else:
+        print("Warning: Embeddings file not found. Advanced analytics will not be available.")
+        print("To enable advanced analytics, run: python3 train_ml_models.py")
+    
     # Initialize ML models
     print("Loading pre-trained ML models...")
     link_predictor = None
     repurposer_obj = None
-    embeddings_df = None
     
     try:
         # Load pre-trained models from models directory
@@ -521,6 +537,8 @@ def create_3d_network_figure(G, selected_node=None, max_nodes=50, walks=2):
 
 # Create main layout
 app.layout = html.Div([
+    # URL component for callbacks
+    dcc.Location(id='url', refresh=False),
 
     # Professional Header
     html.Div([
@@ -614,14 +632,7 @@ app.layout = html.Div([
                         style={"marginBottom": "15px"}
                     ),
                     
-                    # Show labels toggle
-                    html.Label("Display Options:"),
-                    dcc.Checklist(
-                        id="show_labels",
-                        options=[{"label": "Show Node Names (hover for details)", "value": "show"}],
-                        value=[],
-                        style={"marginBottom": "15px"}
-                    ),
+
                     
                     # Max nodes slider
                     html.Label("Max Nodes:"),
@@ -832,37 +843,162 @@ app.layout = html.Div([
             ], style={"display": "flex", "clear": "both"})
         ]),
         
-        # Analytics Tab
-        dcc.Tab(label="Analytics", children=[
+        # Advanced Analytics Tab
+        dcc.Tab(label="Advanced Analytics", children=[
             html.Div([
-                html.H3("Network Analytics", style={"color": "#2c3e50", "marginBottom": "20px"}),
-                
-                # Statistics cards
+                # Left panel - Analytics Controls
                 html.Div([
-                    html.Div([
-                        html.H4("Total Drugs", style={"color": "#e74c3c"}),
-                        html.P(f"{len(drugs_df):,} drugs" if drugs_df is not None else "Loading...")
-                    ], style={"textAlign": "center", "padding": "20px", "backgroundColor": "#ecf0f1", "borderRadius": "10px", "margin": "10px"}),
-                    html.Div([
-                        html.H4("Total Targets", style={"color": "#3498db"}),
-                        html.P(f"{len(targets_df):,} protein targets" if targets_df is not None else "Loading...")
-                    ], style={"textAlign": "center", "padding": "20px", "backgroundColor": "#ecf0f1", "borderRadius": "10px", "margin": "10px"}),
-                    html.Div([
-                        html.H4("Interactions", style={"color": "#27ae60"}),
-                        html.P(f"{len(dti_df):,} drug-target pairs" if dti_df is not None else "Loading...")
-                    ], style={"textAlign": "center", "padding": "20px", "backgroundColor": "#ecf0f1", "borderRadius": "10px", "margin": "10px"}),
-                    html.Div([
-                        html.H4("Components", style={"color": "#f39c12"}),
-                        html.P(f"{nx.number_connected_components(G):,} connected components" if G is not None else "Loading...")
-                    ], style={"textAlign": "center", "padding": "20px", "backgroundColor": "#ecf0f1", "borderRadius": "10px", "margin": "10px"})
-                ], style={"display": "grid", "gridTemplateColumns": "1fr 1fr 1fr 1fr", "gap": "20px", "marginBottom": "30px"}),
+                    html.H3("Discovery Analytics", 
+                            style={
+                                "color": "#2c3e50", 
+                                "marginBottom": "20px",
+                                "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+                                "fontWeight": "600",
+                                "fontSize": "16px",
+                                "borderBottom": "2px solid #3498db",
+                                "paddingBottom": "10px"
+                            }),
+                    
+                    # Analytics type selection
+                    html.Label("Analysis Type:"),
+                    dcc.Dropdown(
+                        id="analytics_type_dropdown",
+                        options=[
+                            {"label": "Drug Discovery Insights", "value": "discovery"},
+                            {"label": "Network Communities", "value": "communities"},
+                            {"label": "Drug Combination Analysis", "value": "combinations"}
+                        ],
+                        value="discovery",
+                        style={"marginBottom": "15px"}
+                    ),
+                    
+                    # Drug selection for analytics
+                    html.Label("Select Drug (Optional - for focused analysis):"),
+                    dcc.Dropdown(
+                        id="analytics_drug_dropdown",
+                        placeholder="Choose a drug for focused analysis, or leave empty for general insights...",
+                        style={"marginBottom": "15px"}
+                    ),
+                    
+                    # Action button
+                    html.Button(
+                        "Run Discovery Analysis",
+                        id="run_analytics_button",
+                        n_clicks=0,
+                        style={
+                            "backgroundColor": "#9b59b6",
+                            "color": "white",
+                            "border": "none",
+                            "padding": "10px 20px",
+                            "borderRadius": "5px",
+                            "cursor": "pointer",
+                            "marginBottom": "15px",
+                            "width": "100%"
+                        }
+                    ),
+                    
+                    # Analytics status
+                    html.Div(id="analytics_status", children="Ready to run analysis", style={"fontSize": "12px", "color": "#7f8c8d", "marginBottom": "10px"})
+                    
+                ], style={"width": "25%", "float": "left", "padding": "20px"}),
                 
-                # Degree distribution plot
+                # Right panel - Analytics Results with Loading
                 html.Div([
-                    html.H4("Degree Distribution", style={"color": "#2c3e50", "marginBottom": "15px"}),
-                    dcc.Graph(id="degree_distribution")
-                ], style={"marginBottom": "30px"})
-            ])
+                    # Loading wrapper for analytics
+                    dcc.Loading(
+                        id="analytics_loading",
+                        type="circle",
+                        children=[
+                            # Analytics Results
+                            html.Div(id="analytics_results", children="Select an analysis type and click 'Run Discovery Analysis' to get started.", style={"padding": "20px", "backgroundColor": "#f8f9fa", "borderRadius": "10px", "minHeight": "400px", "color": "#7f8c8d", "fontStyle": "italic"}),
+                            
+                            # Analytics Visualizations
+                            html.Div(id="analytics_visualizations", style={"marginTop": "20px"})
+                        ],
+                        style={"marginTop": "20px"}
+                    ),
+                    
+                    # Progress indicator
+                    html.Div(id="analytics_progress", 
+                            style={
+                                "marginTop": "15px",
+                                "display": "none",
+                                "padding": "10px",
+                                "backgroundColor": "#e8f4fd",
+                                "borderRadius": "5px",
+                                "border": "1px solid #3498db"
+                            })
+                    
+                ], style={"width": "75%", "float": "right", "padding": "20px"})
+                
+            ], style={"display": "flex", "clear": "both"})
+        ]),
+        
+        # ML Evaluation Tab
+        dcc.Tab(label="ML Evaluation", children=[
+            html.Div([
+                # Left panel - Evaluation Controls
+                html.Div([
+                    html.H3("Model Evaluation", 
+                            style={
+                                "color": "#2c3e50", 
+                                "marginBottom": "20px",
+                                "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+                                "fontWeight": "600",
+                                "fontSize": "16px",
+                                "borderBottom": "2px solid #3498db",
+                                "paddingBottom": "10px"
+                            }),
+                    
+                    # Evaluation metrics summary
+                    html.Div([
+                        html.H4("Performance Summary", style={"color": "#2c3e50", "marginBottom": "15px"}),
+                        html.Div(id="eval_summary", style={"fontSize": "14px"})
+                    ], style={"marginBottom": "20px", "padding": "15px", "backgroundColor": "#f8f9fa", "borderRadius": "5px"}),
+                    
+                    # Model comparison
+                    html.Div([
+                        html.H4("Model Comparison", style={"color": "#2c3e50", "marginBottom": "15px"}),
+                        html.Div(id="model_comparison", style={"fontSize": "14px"})
+                    ], style={"marginBottom": "20px", "padding": "15px", "backgroundColor": "#f8f9fa", "borderRadius": "5px"}),
+                    
+                    # Calibration info
+                    html.Div([
+                        html.H4("Model Calibration", style={"color": "#2c3e50", "marginBottom": "15px"}),
+                        html.Div(id="calibration_info", style={"fontSize": "14px"})
+                    ], style={"marginBottom": "20px", "padding": "15px", "backgroundColor": "#f8f9fa", "borderRadius": "5px"})
+                    
+                ], style={"width": "25%", "float": "left", "padding": "20px"}),
+                
+                # Right panel - Evaluation Visualizations
+                html.Div([
+                    # Performance leaderboard
+                    html.Div([
+                        html.H3("Performance Leaderboard", 
+                                style={
+                                    "color": "#2c3e50", 
+                                    "marginBottom": "15px",
+                                    "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+                                    "fontWeight": "600"
+                                }),
+                        html.Div(id="performance_leaderboard", style={"marginBottom": "20px"})
+                    ]),
+                    
+                    # Calibration plot
+                    html.Div([
+                        html.H3("Model Calibration", 
+                                style={
+                                    "color": "#2c3e50", 
+                                    "marginBottom": "15px",
+                                    "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+                                    "fontWeight": "600"
+                                }),
+                        dcc.Graph(id="calibration_plot")
+                    ])
+                    
+                ], style={"width": "75%", "float": "right", "padding": "20px"})
+                
+            ], style={"display": "flex", "clear": "both"})
         ])
     ])
 ], style={
@@ -916,12 +1052,12 @@ def update_search_options(node_type):
     [Input("search_dropdown", "value"),
      Input("viz_type", "value"),
      Input("max_nodes_slider", "value"),
-     Input("walks_slider", "value"),
-     Input("show_labels", "value")]
+     Input("walks_slider", "value")]
 )
-def update_network_graph(selected_node, viz_type, max_nodes, walks, show_labels):
+def update_network_graph(selected_node, viz_type, max_nodes, walks):
     """Update the network visualization."""
-    show_labels_bool = "show" in show_labels if show_labels else False
+    # Always set show_labels to False since we removed the checkbox
+    show_labels_bool = False
     
     if viz_type == "3d":
         return create_3d_network_figure(G, selected_node, max_nodes, walks)
@@ -1342,7 +1478,7 @@ def run_drug_repurposing(drug_id):
                 html.Ul([html.Li(name) for name in target_names]),
                 html.Hr(),
                 html.H5("Similar Drugs for Repurposing:", style={"color": "#2c3e50", "marginTop": "15px"}),
-                html.Ul([html.Li(f"{drug} (similarity: {sim:.3f})") for drug, sim in similar_drugs])
+                html.Ul([html.Li(f"{drug['name']} (similarity: {drug['similarity']:.3f})") for drug in similar_drugs])
             ])
         ])
         
@@ -1503,6 +1639,924 @@ def run_similarity_analysis():
         
     except Exception as e:
         return f"Error in network analysis: {str(e)}", "", f"Error: {str(e)}", {"width": "0%", "height": "20px", "backgroundColor": "#e74c3c", "borderRadius": "10px", "transition": "width 0.3s ease"}, "Analysis failed"
+
+# Advanced Analytics Callbacks
+@app.callback(
+    Output("analytics_type_dropdown", "value"),
+    Input("analytics_type_dropdown", "value"),
+    prevent_initial_call=True
+)
+def preserve_analytics_type(analytics_type):
+    """Preserve the analytics type selection."""
+    return analytics_type
+
+@app.callback(
+    Output("analytics_drug_dropdown", "options"),
+    Input("analytics_type_dropdown", "value")
+)
+def update_analytics_drug_options(analytics_type):
+    """Update drug options for analytics based on type."""
+    if drugs_df is None:
+        return []
+    
+    # Filter for actual pharmaceutical drugs only
+    # 1. Only approved drugs (not experimental)
+    approved_drugs = drugs_df[drugs_df['approved'] == True]
+    
+    # 2. Exclude endogenous compounds, amino acids, vitamins, etc.
+    endogenous_keywords = [
+        # Nucleotides and coenzymes
+        'ATP', 'ADP', 'AMP', 'GTP', 'GDP', 'cAMP', 'cGMP', 'NADH', 'NAD', 'FAD', 'FMN',
+        # Amino acids
+        'alanine', 'arginine', 'asparagine', 'aspartic acid', 'cysteine', 'glutamic acid', 
+        'glutamine', 'glycine', 'histidine', 'isoleucine', 'leucine', 'lysine', 'methionine',
+        'phenylalanine', 'proline', 'serine', 'threonine', 'tryptophan', 'tyrosine', 'valine',
+        # Vitamins and cofactors
+        'vitamin', 'cofactor', 'coenzyme', 'pyridoxal', 'thiamine', 'riboflavin', 'niacin',
+        # Minerals and basic compounds
+        'calcium', 'zinc', 'iron', 'copper', 'magnesium', 'sodium', 'potassium',
+        # Organic acids and basic compounds
+        'citric acid', 'formic acid', 'acetic acid', 'lactic acid', 'uric acid',
+        # Biological molecules
+        'glucose', 'fructose', 'sucrose', 'lactose', 'cholesterol', 'glycerol',
+        # Common endogenous compounds
+        'ethanol', 'water', 'oxygen', 'carbon dioxide', 'urea', 'creatinine'
+    ]
+    
+    def is_pharmaceutical_drug(name):
+        """Check if a compound is a pharmaceutical drug rather than endogenous compound."""
+        name_lower = name.lower()
+        # Skip endogenous compounds
+        for keyword in endogenous_keywords:
+            if keyword.lower() in name_lower:
+                return False
+        return True
+    
+    # Filter to pharmaceutical drugs only
+    pharmaceutical_drugs = approved_drugs[approved_drugs['name'].apply(is_pharmaceutical_drug)]
+    
+    # Get a larger sample of pharmaceutical drugs for better analysis
+    # Include drugs with any interactions (not just top 50)
+    drug_connections = dti_df['drug_id'].value_counts()
+    sample_drugs = pharmaceutical_drugs[pharmaceutical_drugs['drug_id'].isin(drug_connections.index)]
+    
+    # Also include some well-known pharmaceutical drugs for better testing
+    well_known_drugs = ['DB00316', 'DB01076', 'DB00381', 'DB01115', 'DB00641']  # Aspirin, Ibuprofen, etc.
+    well_known_df = pharmaceutical_drugs[pharmaceutical_drugs['drug_id'].isin(well_known_drugs)]
+    
+    # Combine and remove duplicates
+    all_drugs = pd.concat([sample_drugs, well_known_df]).drop_duplicates(subset=['drug_id'])
+    
+    # Sort by name for better usability
+    all_drugs = all_drugs.sort_values('name')
+    
+    # Limit to a reasonable number for the dropdown (top 200 by connections)
+    if len(all_drugs) > 200:
+        # Get top 200 by number of interactions
+        top_drugs = drug_connections.head(200).index
+        all_drugs = all_drugs[all_drugs['drug_id'].isin(top_drugs)]
+    
+    options = [{"label": f"{row['name']} ({row['drug_id']})", "value": row['drug_id']} 
+               for _, row in all_drugs.iterrows()]
+    
+    return options
+
+@app.callback(
+    [Output("analytics_results", "children"),
+     Output("analytics_visualizations", "children"),
+     Output("analytics_status", "children"),
+     Output("analytics_progress", "children"),
+     Output("analytics_progress", "style")],
+    [Input("run_analytics_button", "n_clicks")],
+    [State("analytics_type_dropdown", "value"),
+     State("analytics_drug_dropdown", "value")]
+)
+def run_advanced_analytics(n_clicks, analytics_type, drug_id):
+    """Run advanced analytics based on selected type and drug."""
+    if n_clicks is None or n_clicks == 0:
+        return "Select an analysis type and click 'Run Discovery Analysis' to get started.", "", "Ready to run analysis", "", {"display": "none"}
+    
+    try:
+        # Show loading status
+        progress_style = {
+            "marginTop": "15px",
+            "display": "block",
+            "padding": "10px",
+            "backgroundColor": "#e8f4fd",
+            "borderRadius": "5px",
+            "border": "1px solid #3498db"
+        }
+        
+        # Check if required data is available
+        if drugs_df is None or targets_df is None or dti_df is None:
+            return "Error: Required data not loaded. Please restart the application.", "", "Error: Data not available", "", {"display": "none"}
+        
+        # Check if embeddings are available for analytics
+        if embeddings_df is None:
+            return "Error: Embeddings not available. Please run 'python3 train_ml_models.py' to generate embeddings first.", "", "Error: Embeddings not available", "", {"display": "none"}
+        
+        # Show progress message
+        progress_msg = f"Running {analytics_type} analysis..."
+        if drug_id:
+            drug_name = drugs_df[drugs_df['drug_id'] == drug_id]['name'].iloc[0] if len(drugs_df[drugs_df['drug_id'] == drug_id]) > 0 else drug_id
+            progress_msg += f" for {drug_name}"
+        
+        if analytics_type == "discovery":
+            results, viz, status = run_drug_discovery_analytics(drug_id)
+            return results, viz, status, progress_msg, progress_style
+        elif analytics_type == "communities":
+            results, viz, status = run_network_communities_analytics(drug_id)
+            return results, viz, status, progress_msg, progress_style
+        elif analytics_type == "combinations":
+            results, viz, status = run_drug_combination_analytics(drug_id)
+            return results, viz, status, progress_msg, progress_style
+        else:
+            return "Unknown analytics type selected.", "", "Error: Invalid analytics type", "", {"display": "none"}
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Analytics error: {error_details}")
+        return f"Error running analytics: {str(e)}", "", f"Error: {str(e)}", "", {"display": "none"}
+
+# ML Evaluation Callbacks
+@app.callback(
+    [Output("eval_summary", "children"),
+     Output("model_comparison", "children"),
+     Output("calibration_info", "children"),
+     Output("performance_leaderboard", "children"),
+     Output("calibration_plot", "figure")],
+    [Input("url", "pathname")],  # Trigger on URL change (page load)
+    prevent_initial_call=False
+)
+def load_evaluation_data(_):
+    """Load and display ML evaluation data."""
+    try:
+        # Load evaluation results
+        eval_path = Path("models/evaluation_results.pkl")
+        if not eval_path.exists():
+            return "Evaluation data not found. Please run training first.", "", "", "", go.Figure()
+        
+        with open(eval_path, 'rb') as f:
+            eval_results = pickle.load(f)
+        
+        # Extract data
+        model_perf = eval_results['model_performance']
+        baseline_results = eval_results['baselines']
+        calibration_results = eval_results['calibration']
+        
+        # Performance summary
+        summary = html.Div([
+            html.P(f"ROC AUC: {model_perf['auc']:.4f}", style={"color": "#27ae60", "fontWeight": "500"}),
+            html.P(f"PR AUC: {model_perf['pr_auc']:.4f}", style={"color": "#27ae60", "fontWeight": "500"}),
+            html.P(f"Average Precision: {model_perf['ap_score']:.4f}", style={"color": "#27ae60", "fontWeight": "500"}),
+            html.P(f"Test Set: {model_perf['test_positives']} positive, {model_perf['test_negatives']} negative edges"),
+            html.P(f"Training Set: {model_perf['train_edges']} edges"),
+            html.P("Validation: Temporal split, no data leakage", style={"color": "#7f8c8d", "fontSize": "12px"})
+        ])
+        
+        # Model comparison
+        comparison = html.Div([
+            html.P("Random Forest vs Baselines:", style={"fontWeight": "500", "marginBottom": "10px"}),
+            html.P(f"vs Common Neighbors: +{model_perf['auc'] - baseline_results['common_neighbors']['roc_auc']:.3f} AUC"),
+            html.P(f"vs Jaccard: +{model_perf['auc'] - baseline_results['jaccard']['roc_auc']:.3f} AUC"),
+            html.P(f"vs Adamic-Adar: +{model_perf['auc'] - baseline_results['adamic_adar']['roc_auc']:.3f} AUC")
+        ])
+        
+        # Calibration info
+        calibration_info = html.Div([
+            html.P(f"Brier Score: {calibration_results['brier_score']:.4f}", style={"color": "#e74c3c", "fontWeight": "500"}),
+            html.P("Lower is better (0.0 = perfect calibration)"),
+            html.P("Reliability curve shows prediction confidence vs actual frequency")
+        ])
+        
+        # Performance leaderboard
+        leaderboard = html.Div([
+            html.Table([
+                html.Thead([
+                    html.Tr([
+                        html.Th("Method", style={"padding": "8px", "textAlign": "left"}),
+                        html.Th("ROC AUC", style={"padding": "8px", "textAlign": "center"}),
+                        html.Th("AP Score", style={"padding": "8px", "textAlign": "center"})
+                    ])
+                ]),
+                html.Tbody([
+                    html.Tr([
+                        html.Td("Random Forest", style={"padding": "8px", "fontWeight": "500", "color": "#27ae60"}),
+                        html.Td(f"{model_perf['auc']:.4f}", style={"padding": "8px", "textAlign": "center", "fontWeight": "500"}),
+                        html.Td(f"{model_perf['ap_score']:.4f}", style={"padding": "8px", "textAlign": "center", "fontWeight": "500"})
+                    ]),
+                    html.Tr([
+                        html.Td("Common Neighbors", style={"padding": "8px"}),
+                        html.Td(f"{baseline_results['common_neighbors']['roc_auc']:.4f}", style={"padding": "8px", "textAlign": "center"}),
+                        html.Td(f"{baseline_results['common_neighbors']['ap_score']:.4f}", style={"padding": "8px", "textAlign": "center"})
+                    ]),
+                    html.Tr([
+                        html.Td("Jaccard", style={"padding": "8px"}),
+                        html.Td(f"{baseline_results['jaccard']['roc_auc']:.4f}", style={"padding": "8px", "textAlign": "center"}),
+                        html.Td(f"{baseline_results['jaccard']['ap_score']:.4f}", style={"padding": "8px", "textAlign": "center"})
+                    ]),
+                    html.Tr([
+                        html.Td("Adamic-Adar", style={"padding": "8px"}),
+                        html.Td(f"{baseline_results['adamic_adar']['roc_auc']:.4f}", style={"padding": "8px", "textAlign": "center"}),
+                        html.Td(f"{baseline_results['adamic_adar']['ap_score']:.4f}", style={"padding": "8px", "textAlign": "center"})
+                    ])
+                ])
+            ], style={"width": "100%", "borderCollapse": "collapse", "border": "1px solid #dee2e6"})
+        ])
+        
+        # Calibration plot
+        fig = go.Figure()
+        
+        # Add reliability curve
+        fig.add_trace(go.Scatter(
+            x=calibration_results['mean_predicted_value'],
+            y=calibration_results['fraction_of_positives'],
+            mode='lines+markers',
+            name='Model Calibration',
+            line=dict(color='#3498db', width=3),
+            marker=dict(size=8)
+        ))
+        
+        # Add perfect calibration line
+        fig.add_trace(go.Scatter(
+            x=[0, 1],
+            y=[0, 1],
+            mode='lines',
+            name='Perfect Calibration',
+            line=dict(color='#e74c3c', width=2, dash='dash')
+        ))
+        
+        fig.update_layout(
+            title="Model Calibration (Reliability Curve)",
+            xaxis_title="Mean Predicted Probability",
+            yaxis_title="Fraction of Positives",
+            xaxis=dict(range=[0, 1]),
+            yaxis=dict(range=[0, 1]),
+            showlegend=True,
+            height=400
+        )
+        
+        return summary, comparison, calibration_info, leaderboard, fig
+        
+    except Exception as e:
+        error_msg = f"Error loading evaluation data: {str(e)}"
+        return error_msg, "", "", "", go.Figure()
+
+# Community Graph Click Prevention Callback
+@app.callback(
+    Output("community_network_graph", "clickData"),
+    Input("community_network_graph", "clickData"),
+    prevent_initial_call=True
+)
+def prevent_community_graph_clicks(click_data):
+    """Prevent community graph clicks from triggering other callbacks."""
+    # Return None to prevent any click data from being processed
+    return None
+
+# Advanced Analytics Functions
+def run_drug_discovery_analytics(drug_id=None):
+    """Run drug discovery insights (can work with or without specific drug)."""
+    # Initialize analytics
+    repurposing_analytics = DrugRepurposingAnalytics(drugs_df, targets_df, dti_df, embeddings_df)
+    network_analytics = NetworkAnalytics(G, drugs_df, targets_df, dti_df)
+    
+    if drug_id:
+        # Focused analysis on specific drug
+        drug_info = drugs_df[drugs_df['drug_id'] == drug_id].iloc[0]
+        
+        # Find similar drugs
+        similar_drugs = repurposing_analytics.find_similar_drugs(drug_id, top_k=10, similarity_threshold=0.3)
+        
+        # Find repurposing opportunities
+        opportunities = repurposing_analytics.repurposing_opportunities(drug_id)
+        
+        # Network centrality - Optimized for speed (degree centrality only)
+        if drug_id in G:
+            neighbors = list(G.neighbors(drug_id))
+            degree_centrality = len(neighbors) / (len(G.nodes()) - 1) if len(G.nodes()) > 1 else 0
+            centrality = {
+                'degree_centrality': degree_centrality,
+                'betweenness_centrality': 0.0,  # Skip slow calculation
+                'closeness_centrality': 0.0     # Skip slow calculation
+            }
+        else:
+            centrality = {
+                'degree_centrality': 0.0,
+                'betweenness_centrality': 0.0,
+                'closeness_centrality': 0.0
+            }
+        
+        results = html.Div([
+            html.H4(f"Drug Discovery Insights: {drug_info['name']}", 
+                    style={"color": "#2c3e50", "marginBottom": "15px"}),
+            
+            html.Div([
+                html.H5(f"Similar Drugs ({len(similar_drugs)} found)", style={"color": "#3498db", "marginBottom": "10px"}),
+                html.Div([
+                    html.Div([
+                        html.P(f"• {drug['name']} (Similarity: {drug['similarity']:.3f})", 
+                               style={"margin": "5px 0", "fontSize": "14px"}),
+                        html.P(f"  Type: {drug['type']}, Approved: {'Yes' if drug['approved'] else 'No'}", 
+                               style={"margin": "0 0 10px 20px", "fontSize": "12px", "color": "#7f8c8d"})
+                    ]) for drug in similar_drugs[:5]
+                ]) if similar_drugs else html.P("No similar drugs found.", style={"color": "#e74c3c", "fontStyle": "italic"})
+            ], style={"marginBottom": "20px", "padding": "15px", "backgroundColor": "#ecf0f1", "borderRadius": "5px"}),
+            
+            html.Div([
+                html.H5("Network Position (Fast Analysis)", style={"color": "#e74c3c", "marginBottom": "10px"}),
+                html.P(f"Degree Centrality: {centrality.get('degree_centrality', 0):.4f}"),
+                html.P(f"Target Connections: {len(list(G.neighbors(drug_id))) if drug_id in G else 0}"),
+                html.P(f"Note: Showing degree centrality only for faster analysis", 
+                       style={"fontSize": "11px", "color": "#7f8c8d", "fontStyle": "italic"})
+            ], style={"padding": "15px", "backgroundColor": "#ecf0f1", "borderRadius": "5px"})
+        ])
+        
+        # Create visualization
+        if similar_drugs:
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=[0], y=[0],
+                mode='markers+text',
+                marker=dict(size=20, color='red'),
+                text=[drug_info['name']],
+                textposition="middle center",
+                name="Selected Drug"
+            ))
+            
+            angles = np.linspace(0, 2*np.pi, len(similar_drugs), endpoint=False)
+            x_coords = np.cos(angles) * 2
+            y_coords = np.sin(angles) * 2
+            
+            fig.add_trace(go.Scatter(
+                x=x_coords, y=y_coords,
+                mode='markers+text',
+                marker=dict(size=15, color='blue'),
+                text=[drug['name'] for drug in similar_drugs],
+                textposition="middle center",
+                name="Similar Drugs"
+            ))
+            
+            fig.update_layout(
+                title="Drug Discovery Network",
+                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                height=400
+            )
+            
+            visualizations = dcc.Graph(figure=fig)
+        else:
+            visualizations = html.P("No similar drugs found for visualization.")
+            
+    else:
+        # General discovery insights - Optimized for speed
+        # Use degree centrality only (much faster than betweenness)
+        drug_centralities = []
+        
+        # Get drugs with most connections (top 10 for speed)
+        drug_connections = dti_df['drug_id'].value_counts().head(10)
+        
+        for drug_id in drug_connections.index:
+            drug_info = drugs_df[drugs_df['drug_id'] == drug_id].iloc[0]
+            # Only calculate degree centrality (fast)
+            degree_centrality = len(list(G.neighbors(drug_id))) / (len(G.nodes()) - 1) if len(G.nodes()) > 1 else 0
+            
+            drug_centralities.append({
+                'name': drug_info['name'],
+                'degree': degree_centrality,
+                'connections': drug_connections[drug_id]
+            })
+        
+        # Sort by degree centrality
+        drug_centralities.sort(key=lambda x: x['degree'], reverse=True)
+        
+        results = html.Div([
+            html.H4("Drug Discovery Insights", 
+                    style={"color": "#2c3e50", "marginBottom": "15px"}),
+            
+            html.Div([
+                html.H5("Top Drugs by Network Importance", style={"color": "#3498db", "marginBottom": "10px"}),
+                html.Div([
+                    html.Div([
+                        html.P(f"• {drug['name']} (Degree: {drug['degree']:.4f}, Connections: {drug['connections']})", 
+                               style={"margin": "5px 0", "fontSize": "14px"})
+                    ]) for drug in drug_centralities[:10]
+                ])
+            ], style={"padding": "15px", "backgroundColor": "#ecf0f1", "borderRadius": "5px"})
+        ])
+        
+        # Create visualization
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=[drug['name'] for drug in drug_centralities[:10]],
+            y=[drug['degree'] for drug in drug_centralities[:10]],
+            name='Degree Centrality'
+        ))
+        
+        fig.update_layout(
+            title="Top Drugs by Network Importance",
+            xaxis_title="Drug",
+            yaxis_title="Degree Centrality",
+            height=400
+        )
+        
+        visualizations = dcc.Graph(figure=fig)
+    
+    return results, visualizations, "Drug discovery analysis completed"
+
+def run_network_communities_analytics(drug_id=None):
+    """Run network community analysis."""
+    # Initialize analytics
+    network_analytics = NetworkAnalytics(G, drugs_df, targets_df, dti_df)
+    
+    # Detect communities
+    communities = network_analytics.community_detection()
+    
+    print(f"DEBUG: Detected {len(communities)} communities")
+    for comm_id, members in list(communities.items())[:5]:
+        print(f"  Community {comm_id}: {len(members)} members")
+    
+    # Initialize community_stats for visualization
+    community_stats = []
+    
+    print(f"DEBUG: drug_id parameter = {drug_id}")
+    
+    if drug_id:
+        # Focused analysis on specific drug's community
+        drug_info = drugs_df[drugs_df['drug_id'] == drug_id].iloc[0]
+        
+        # Find which community the drug belongs to
+        drug_community = None
+        for community_id, members in communities.items():
+            if drug_id in members:
+                drug_community = community_id
+                break
+        
+        if drug_community is not None:
+            # Get other drugs in the same community (remove duplicates)
+            community_drugs = list(set([m for m in communities[drug_community] if m in drugs_df['drug_id'].values]))
+            community_drug_info = drugs_df[drugs_df['drug_id'].isin(community_drugs)].drop_duplicates(subset=['drug_id'])
+            
+            # Create community_stats for this specific community
+            drug_count = len(community_drugs)
+            target_count = len([m for m in communities[drug_community] if m in targets_df['target_id'].values])
+            community_stats.append({
+                'community_id': drug_community,
+                'drug_count': drug_count,
+                'target_count': target_count,
+                'total_members': len(communities[drug_community])
+            })
+            
+            results = html.Div([
+                html.H4(f"Network Communities: {drug_info['name']}", 
+                        style={"color": "#2c3e50", "marginBottom": "15px"}),
+                
+                html.Div([
+                    html.H5(f"Community {drug_community} ({len(community_drugs)} drugs)", 
+                            style={"color": "#3498db", "marginBottom": "10px"}),
+                    html.Div([
+                        html.P(f"• {row['name']} ({row['drug_id']})", 
+                               style={"margin": "5px 0", "fontSize": "14px"})
+                        for _, row in community_drug_info.head(10).iterrows()
+                    ])
+                ], style={"padding": "15px", "backgroundColor": "#ecf0f1", "borderRadius": "5px"})
+            ])
+        else:
+            results = html.Div([
+                html.H4(f"Network Communities: {drug_info['name']}", 
+                        style={"color": "#2c3e50", "marginBottom": "15px"}),
+                html.P("Drug not found in any community.", style={"color": "#e74c3c"})
+            ])
+    else:
+        # General community analysis
+        # Count drugs in each community
+        print(f"DEBUG: Starting community stats creation...")
+        print(f"DEBUG: Processing {len(communities)} communities for stats creation")
+        for community_id, members in communities.items():
+            drug_count = len([m for m in members if m in drugs_df['drug_id'].values])
+            target_count = len([m for m in members if m in targets_df['target_id'].values])
+            print(f"DEBUG: Community {community_id}: {drug_count} drugs, {target_count} targets, {len(members)} total")
+            # Show communities with either drugs or targets (but at least some meaningful content)
+            if drug_count > 0 or target_count > 5:  # Show communities with drugs OR significant targets
+                print(f"DEBUG: Adding Community {community_id} to stats")
+                community_stats.append({
+                    'community_id': community_id,
+                    'drug_count': drug_count,
+                    'target_count': target_count,
+                    'total_members': len(members)
+                })
+            else:
+                print(f"DEBUG: Skipping Community {community_id} (no drugs and <=5 targets)")
+        
+        # Sort by drug count
+        community_stats.sort(key=lambda x: x['drug_count'], reverse=True)
+        
+        print(f"DEBUG: Created {len(community_stats)} community_stats")
+        print(f"DEBUG: Total communities that passed the filter: {len(community_stats)}")
+        print(f"DEBUG: Communities that passed the filter:")
+        for stat in community_stats:
+            print(f"  Community {stat['community_id']}: {stat['drug_count']} drugs, {stat['target_count']} targets")
+        
+        results = html.Div([
+            html.H4("Network Communities", 
+                    style={"color": "#2c3e50", "marginBottom": "15px"}),
+            
+            html.Div([
+                html.H5(f"Found {len(community_stats)} Communities", 
+                        style={"color": "#3498db", "marginBottom": "10px"}),
+                html.P("Communities represent groups of drugs and targets that work together functionally. Drugs in the same community often target similar pathways or treat related conditions.", 
+                       style={"fontSize": "12px", "color": "#7f8c8d", "marginBottom": "15px", "fontStyle": "italic"}),
+                html.Div([
+                    html.Div([
+                        html.P(f"• Community {stat['community_id']}: {stat['drug_count']} drugs, {stat['target_count']} targets", 
+                               style={"margin": "5px 0", "fontSize": "14px"})
+                    ]) for stat in community_stats[:10]
+                ])
+            ], style={"padding": "15px", "backgroundColor": "#ecf0f1", "borderRadius": "5px"})
+        ])
+    
+    # Create community network visualization
+    if community_stats:
+        # Get the top 5 largest communities for better visualization (showing all nodes)
+        top_communities = community_stats[:5]
+        
+        # Debug: Print what communities we're trying to visualize
+        print(f"Attempting to visualize {len(top_communities)} communities:")
+        for comm in top_communities:
+            print(f"  Community {comm['community_id']}: {comm['total_members']} nodes ({comm['drug_count']} drugs, {comm['target_count']} targets)")
+        
+        # Create network graph showing community structure
+        fig_network = go.Figure()
+        
+        # Track all nodes and their positions
+        all_nodes = []
+        node_positions = {}
+        node_colors = []
+        node_sizes = []
+        node_labels = []
+        node_types = []  # Track if node is drug or target
+        
+        # Distinct colors for different node types
+        community_colors = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6']  # Red, Blue, Green, Orange, Purple
+        drug_colors = ['#c0392b', '#2980b9', '#27ae60', '#e67e22', '#8e44ad']      # Darker versions for drugs
+        target_colors = ['#ec7063', '#5dade2', '#58d68d', '#f8c471', '#bb8fce']   # Lighter versions for targets
+        
+        # Position communities in a larger circle with better spacing
+        center_x, center_y = 0, 0
+        radius = 8  # Increased radius for better separation
+        
+        for i, community_stat in enumerate(top_communities):
+            community_id = community_stat['community_id']
+            
+            # Get community members from the communities dict
+            if community_id in communities:
+                community_members = communities[community_id]
+                
+                # Separate drugs and targets
+                community_drugs = [m for m in community_members if m in drugs_df['drug_id'].values]
+                community_targets = [m for m in community_members if m in targets_df['target_id'].values]
+                
+                print(f"  Processing Community {community_id}: {len(community_drugs)} drugs, {len(community_targets)} targets")
+                
+                # Position community center with better spacing
+                angle = (2 * np.pi * i) / len(top_communities)
+                comm_x = center_x + radius * np.cos(angle)
+                comm_y = center_y + radius * np.sin(angle)
+                
+                # Add community center node
+                all_nodes.append(f"Community_{community_id}")
+                node_positions[f"Community_{community_id}"] = (comm_x, comm_y)
+                node_colors.append(community_colors[i % len(community_colors)])
+                node_sizes.append(25)
+                node_labels.append(f"C{community_id}")  # Simplified label
+                node_types.append("center")
+                
+                # Position ALL drugs in inner circle
+                for j, drug_id in enumerate(community_drugs):
+                    drug_angle = angle + (2 * np.pi * j) / len(community_drugs) - np.pi/3
+                    drug_radius = 3.0  # Increased radius for better visibility
+                    drug_x = comm_x + drug_radius * np.cos(drug_angle)
+                    drug_y = comm_y + drug_radius * np.sin(drug_angle)
+                    
+                    drug_name = drugs_df[drugs_df['drug_id'] == drug_id]['name'].iloc[0]
+                    all_nodes.append(drug_id)
+                    node_positions[drug_id] = (drug_x, drug_y)
+                    # Use distinct drug colors (darker, more saturated)
+                    node_colors.append(drug_colors[i % len(drug_colors)])
+                    node_sizes.append(12)
+                    node_labels.append("")  # No text labels on nodes
+                    node_types.append("drug")
+                
+                # Position ALL targets in outer circle
+                for j, target_id in enumerate(community_targets):
+                    target_angle = angle + (2 * np.pi * j) / len(community_targets) + np.pi/3
+                    target_radius = 5.0  # Increased radius for better separation
+                    target_x = comm_x + target_radius * np.cos(target_angle)
+                    target_y = comm_y + target_radius * np.sin(target_angle)
+                    
+                    target_name = targets_df[targets_df['target_id'] == target_id]['name'].iloc[0]
+                    all_nodes.append(target_id)
+                    node_positions[target_id] = (target_x, target_y)
+                    # Use distinct target colors (lighter, pastel-like)
+                    node_colors.append(target_colors[i % len(target_colors)])
+                    node_sizes.append(8)
+                    node_labels.append("")  # No text labels on nodes
+                    node_types.append("target")
+        
+        # Create edges (connections within communities)
+        edges_x = []
+        edges_y = []
+        
+        for community_stat in top_communities:
+            community_id = community_stat['community_id']
+            if community_id in communities:
+                community_members = communities[community_id]
+                
+                # Connect community center to its members
+                comm_center = f"Community_{community_id}"
+                if comm_center in node_positions:
+                    for member in community_members:
+                        if member in node_positions:
+                            # Add edge from center to member
+                            edges_x.extend([node_positions[comm_center][0], node_positions[member][0], None])
+                            edges_y.extend([node_positions[comm_center][1], node_positions[member][1], None])
+        
+        # Add edges
+        if edges_x:
+            fig_network.add_trace(go.Scatter(
+                x=edges_x,
+                y=edges_y,
+                mode='lines',
+                line=dict(color='rgba(100,100,100,0.2)', width=0.5),
+                hoverinfo='none',
+                showlegend=False
+            ))
+        
+        # Add nodes
+        node_x = [node_positions[node][0] for node in all_nodes]
+        node_y = [node_positions[node][1] for node in all_nodes]
+        
+        print(f"Total nodes in visualization: {len(all_nodes)}")
+        print(f"Node types: {dict(zip(*np.unique(node_types, return_counts=True)))}")
+        print(f"Node positions: {len(node_positions)}")
+        print(f"Sample node positions: {list(node_positions.items())[:5]}")
+        
+        fig_network.add_trace(go.Scatter(
+            x=node_x,
+            y=node_y,
+            mode='markers',  # No text labels
+            marker=dict(
+                size=node_sizes,
+                color=node_colors,
+                line=dict(color='white', width=1),
+                opacity=0.8
+            ),
+            hoverinfo='text',
+            name='Community Network',
+            customdata=node_types,  # Store node types for hover info
+            hovertemplate='<b>%{text}</b><br>Type: %{customdata}<extra></extra>',
+            text=[f"Community {n.split('_')[1]}" if n.startswith('Community_') else 
+                  (drugs_df[drugs_df['drug_id'] == n]['name'].iloc[0] if n in drugs_df['drug_id'].values else 
+                   targets_df[targets_df['target_id'] == n]['name'].iloc[0]) for n in all_nodes]
+        ))
+        
+        fig_network.update_layout(
+            title="Community Network Structure - 5 Largest Communities",
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            height=600,
+            width=800,  # Fixed width for better centering
+            showlegend=False,
+            plot_bgcolor='white',
+            clickmode='event',  # Enable clicks for navigation
+            margin=dict(l=50, r=50, t=80, b=50),  # Better margins
+            dragmode='pan',  # Enable panning
+            hovermode='closest'  # Enable hover
+        )
+        
+        # Add explanation and legend
+        community_ids = [f'C{comm["community_id"]}' for comm in top_communities]
+        explanation = html.Div([
+            html.P(f"This visualization shows the {len(top_communities)} largest communities in the drug-target network.", 
+                   style={"fontSize": "14px", "color": "#2c3e50", "marginBottom": "10px"}),
+            html.P("Each community is a group of drugs and targets that work together functionally.", 
+                   style={"fontSize": "12px", "color": "#7f8c8d", "marginBottom": "15px", "fontStyle": "italic"}),
+            html.P(f"Communities found: {', '.join(community_ids)}", 
+                   style={"fontSize": "12px", "color": "#e67e22", "fontWeight": "bold"})
+        ])
+        
+        # Add legend
+        legend_items = []
+        for i, community_stat in enumerate(top_communities):
+            legend_items.append(
+                html.Div([
+                    html.Span("●", style={"color": community_colors[i % len(community_colors)], "fontSize": "20px"}),
+                    html.Span(f" Community {community_stat['community_id']} ({community_stat['total_members']} nodes)", 
+                             style={"marginLeft": "10px", "fontSize": "12px"})
+                ], style={"marginBottom": "5px"})
+            )
+        
+        # Add node type legend with distinct color coding
+        legend_items.append(html.Div([
+            html.Span("●", style={"color": "#e74c3c", "fontSize": "18px"}),
+            html.Span(" Community Centers", style={"marginLeft": "10px", "fontSize": "12px"}),
+            html.Span(" ●", style={"color": "#c0392b", "fontSize": "14px"}),
+            html.Span(" Drugs (Darker)", style={"marginLeft": "10px", "fontSize": "12px"}),
+            html.Span(" ●", style={"color": "#ec7063", "fontSize": "12px"}),
+            html.Span(" Targets (Lighter)", style={"marginLeft": "10px", "fontSize": "12px"})
+        ], style={"marginTop": "10px", "marginBottom": "5px"}))
+        
+        legend_div = html.Div(legend_items, style={"marginTop": "10px", "textAlign": "center"})
+        
+                # Center the graph container with complete isolation
+        visualizations = html.Div([
+            explanation,
+            html.Div([
+                            dcc.Graph(
+                figure=fig_network, 
+                config={
+                    'displayModeBar': True,
+                    'staticPlot': False,  # Make it interactive
+                    'modeBarButtonsToRemove': ['select2d', 'lasso2d'],
+                    'displaylogo': False,
+                    'responsive': False
+                },
+                id='community_network_graph'
+            )
+            ], style={
+                "display": "flex", 
+                "justifyContent": "center", 
+                "alignItems": "center"
+            }),
+            legend_div
+        ], style={
+            "textAlign": "center"
+        })
+    else:
+        visualizations = html.P("No community data available for visualization.")
+    
+    return results, visualizations, "Network community analysis completed"
+
+def run_drug_combination_analytics(drug_id=None):
+    """Run drug combination analysis."""
+    # Initialize analytics
+    predictive_analytics = PredictiveInsights(drugs_df, targets_df, dti_df, link_predictor)
+    
+    if drug_id:
+        # Focused analysis on specific drug
+        drug_info = drugs_df[drugs_df['drug_id'] == drug_id].iloc[0]
+        
+        # Get drug combination recommendations
+        combinations = predictive_analytics.drug_combination_recommendations(drug_id)
+        
+        # Get drug-drug interaction warnings
+        interactions = predictive_analytics.drug_drug_interaction_warnings(drug_id)
+        
+        results = html.Div([
+            html.H4(f"Drug Combination Analysis: {drug_info['name']}", 
+                    style={"color": "#2c3e50", "marginBottom": "15px"}),
+            
+            # Explanation section
+            html.Div([
+                html.H5("What This Analysis Shows", style={"color": "#2c3e50", "marginBottom": "10px"}),
+                html.P("This analysis identifies drugs that could work well together (complementary targets) and drugs that might interact poorly (shared targets).", 
+                       style={"fontSize": "12px", "color": "#7f8c8d", "marginBottom": "15px", "fontStyle": "italic"}),
+            ], style={"marginBottom": "20px", "padding": "15px", "backgroundColor": "#e8f4fd", "borderRadius": "5px", "border": "1px solid #3498db"}),
+            
+            html.Div([
+                html.H5("Recommended Combinations", style={"color": "#3498db", "marginBottom": "10px"}),
+                html.P("These drugs target different proteins, potentially enhancing therapeutic effects with minimal side effects:", 
+                       style={"fontSize": "12px", "color": "#7f8c8d", "marginBottom": "10px", "fontStyle": "italic"}),
+                html.Div([
+                    html.Div([
+                        html.P(f"• {combo['name']} (Complementarity: {combo['complementarity_score']})", 
+                               style={"margin": "5px 0", "fontSize": "14px"}),
+                        html.P(f"  Overlap: {combo['overlap']}, Total Targets: {combo['total_targets']}", 
+                               style={"margin": "0 0 10px 20px", "fontSize": "12px", "color": "#7f8c8d"})
+                    ]) for combo in combinations[:5]
+                ]) if combinations else html.P("No combination recommendations found.", style={"color": "#e74c3c", "fontStyle": "italic"})
+            ], style={"marginBottom": "20px", "padding": "15px", "backgroundColor": "#ecf0f1", "borderRadius": "5px"}),
+            
+            html.Div([
+                html.H5("Interaction Warnings", style={"color": "#e74c3c", "marginBottom": "10px"}),
+                html.P("These drugs target the same proteins and may cause adverse interactions or reduced effectiveness:", 
+                       style={"fontSize": "12px", "color": "#7f8c8d", "marginBottom": "10px", "fontStyle": "italic"}),
+                html.Div([
+                    html.Div([
+                        html.P(f"• {interaction['name']} ({interaction['warning_level']} Risk)", 
+                               style={"margin": "5px 0", "fontSize": "14px"}),
+                        html.P(f"  Interaction Strength: {interaction['interaction_strength']:.3f}", 
+                               style={"margin": "0 0 10px 20px", "fontSize": "12px", "color": "#7f8c8d"})
+                    ]) for interaction in interactions[:5]
+                ]) if interactions else html.P("No significant interactions found.", style={"color": "#27ae60", "fontStyle": "italic"})
+            ], style={"padding": "15px", "backgroundColor": "#ecf0f1", "borderRadius": "5px"})
+        ])
+        
+        # Create separate visualizations
+        visualization_components = []
+        
+        # Combination recommendations visualization
+        if combinations:
+            fig_combinations = go.Figure()
+            fig_combinations.add_trace(go.Bar(
+                x=[combo['name'] for combo in combinations[:5]],
+                y=[combo['complementarity_score'] for combo in combinations[:5]],
+                name='Complementarity Score',
+                marker_color='#3498db'
+            ))
+            
+            fig_combinations.update_layout(
+                title="Recommended Drug Combinations",
+                xaxis_title="Drug",
+                yaxis_title="Complementarity Score",
+                height=300,
+                showlegend=False
+            )
+            
+            visualization_components.append(dcc.Graph(figure=fig_combinations))
+        
+        # Interaction warnings visualization
+        if interactions:
+            fig_interactions = go.Figure()
+            fig_interactions.add_trace(go.Bar(
+                x=[interaction['name'] for interaction in interactions[:5]],
+                y=[interaction['interaction_strength'] for interaction in interactions[:5]],
+                name='Interaction Risk',
+                marker_color='#e74c3c'
+            ))
+            
+            fig_interactions.update_layout(
+                title="Drug Interaction Warnings",
+                xaxis_title="Drug",
+                yaxis_title="Interaction Strength",
+                height=300,
+                showlegend=False
+            )
+            
+            visualization_components.append(dcc.Graph(figure=fig_interactions))
+        
+        # Combine visualizations
+        if visualization_components:
+            visualizations = html.Div(visualization_components, style={"display": "flex", "flexDirection": "column", "gap": "20px"})
+        else:
+            visualizations = html.P("No data available for visualization.")
+            
+    else:
+        # General combination insights
+        # Find drugs with highest complementarity potential
+        all_combinations = []
+        for _, drug in drugs_df.head(10).iterrows():  # Sample first 10 drugs
+            combinations = predictive_analytics.drug_combination_recommendations(drug['drug_id'])
+            if combinations:
+                all_combinations.extend(combinations[:3])  # Top 3 for each drug
+        
+        # Sort by complementarity
+        all_combinations.sort(key=lambda x: x['complementarity_score'], reverse=True)
+        
+        results = html.Div([
+            html.H4("Drug Combination Insights", 
+                    style={"color": "#2c3e50", "marginBottom": "15px"}),
+            
+            # Explanation section
+            html.Div([
+                html.H5("What This Analysis Shows", style={"color": "#2c3e50", "marginBottom": "10px"}),
+                html.P("This analysis identifies drugs with the highest potential for beneficial combinations based on their target complementarity.", 
+                       style={"fontSize": "12px", "color": "#7f8c8d", "marginBottom": "15px", "fontStyle": "italic"}),
+            ], style={"marginBottom": "20px", "padding": "15px", "backgroundColor": "#e8f4fd", "borderRadius": "5px", "border": "1px solid #3498db"}),
+            
+            html.Div([
+                html.H5("Top Combination Opportunities", style={"color": "#3498db", "marginBottom": "10px"}),
+                html.P("These drugs have the highest complementarity scores, meaning they target different proteins and could work well together:", 
+                       style={"fontSize": "12px", "color": "#7f8c8d", "marginBottom": "10px", "fontStyle": "italic"}),
+                html.Div([
+                    html.Div([
+                        html.P(f"• {combo['name']} (Complementarity: {combo['complementarity_score']})", 
+                               style={"margin": "5px 0", "fontSize": "14px"})
+                    ]) for combo in all_combinations[:10]
+                ]) if all_combinations else html.P("No combination opportunities found.", style={"color": "#e74c3c", "fontStyle": "italic"})
+            ], style={"padding": "15px", "backgroundColor": "#ecf0f1", "borderRadius": "5px"})
+        ])
+        
+        # Create visualization
+        if all_combinations:
+            fig = go.Figure()
+            fig.add_trace(go.Bar(
+                x=[combo['name'] for combo in all_combinations[:10]],
+                y=[combo['complementarity_score'] for combo in all_combinations[:10]],
+                name='Complementarity Score'
+            ))
+            
+            fig.update_layout(
+                title="Top Drug Combination Opportunities",
+                xaxis_title="Drug",
+                yaxis_title="Complementarity Score",
+                height=400
+            )
+            
+            visualizations = dcc.Graph(figure=fig)
+        else:
+            visualizations = html.P("No combination data available for visualization.")
+    
+    return results, visualizations, "Drug combination analysis completed"
 
 # Removed duplicate callbacks - progress is now handled in the main run_ml_analysis callback
 
