@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dti-graph"
+version = "0.1.0"
+description = "Drug-Target Interaction Network Explorer"
+authors = [{name = "DTI Team"}]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas",
+    "numpy", 
+    "pyarrow",
+    "lxml",
+    "networkx",
+    "scikit-learn",
+    "nodevectors",
+    "umap-learn",
+    "dash",
+    "dash-cytoscape",
+    "faiss-cpu",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+select = ["E", "F", "I"]
+ignore = []
+exclude = [
+    ".venv",
+    "__pycache__",
+    ".git",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+

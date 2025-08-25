@@ -1,0 +1,15 @@
+pandas
+numpy
+pyarrow
+lxml
+networkx
+scikit-learn
+node2vec
+umap-learn
+dash
+dash-cytoscape
+faiss-cpu
+pytest
+ruff
+kagglehub
+python-louvain
