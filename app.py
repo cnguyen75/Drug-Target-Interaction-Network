@@ -17,6 +17,7 @@ from plotly.subplots import make_subplots
 # Add src to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
 from config import DRUGS_FP, DTI_FP, TARGETS_FP
+from pipeline.build_graph import most_connected
 from pipeline.link_prediction import DTILinkPredictor
 from pipeline.drug_repurposing import DrugRepurposer
 from pipeline.advanced_analytics import DrugRepurposingAnalytics, NetworkAnalytics, PredictiveInsights
@@ -1415,22 +1416,25 @@ def run_link_prediction(drug_id, target_id):
             ])
         ])
         
-        # Create metrics (read from the trained model's held-out evaluation)
-        perf = getattr(link_predictor, "evaluation_results", {}).get("model_performance", {})
+        # Create metrics (read from results/results.json)
+        res = load_results()
+        if res:
+            rf = {k: v["random_forest"] for k, v in res["splits"].items()}
+            metric_rows = [html.P(f"{SPLIT_LABELS[k]}: ROC AUC {b['roc_auc']:.3f}, "
+                                  f"average precision {b['average_precision']:.3f}")
+                           for k, b in rf.items()]
+        else:
+            metric_rows = [html.P("No results yet. Run: python train_ml_models.py")]
         metrics = html.Div([
-            html.H5("Model Performance (held-out test pairs)", style={
+            html.H5("Model performance on held-out pairs", style={
                 "color": "#2c3e50",
                 "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
                 "fontWeight": "500"
             }),
-            html.P(f"ROC AUC: {perf['auc']:.4f}" if perf else "ROC AUC: not available"),
-            html.P(f"Average precision: {perf['ap_score']:.4f}" if perf else "Average precision: not available"),
-            html.P(f"Training pairs: {perf['train_positives']:,} positive, {perf['train_negatives']:,} negative"
-                   if perf else "Training pairs: not available"),
-            html.P(f"Split: {perf['split']}" if perf else ""),
+            *metric_rows,
             html.P("Model: Random Forest Classifier, 12 graph and embedding features")
         ])
-        
+
         return results, metrics, "Link prediction completed", {"width": "100%", "height": "20px", "backgroundColor": "#27ae60", "borderRadius": "10px", "transition": "width 0.3s ease"}, "Analysis complete"
         
     except Exception as e:
@@ -1507,13 +1511,9 @@ def run_drug_repurposing(drug_id):
 def run_similarity_analysis():
     """Run comprehensive network analysis."""
     try:
-        # Get top connected drugs (more than before)
-        drug_connections = dti_df['drug_id'].value_counts().head(25)
-        top_drugs = drugs_df[drugs_df['drug_id'].isin(drug_connections.index)]
-        
-        # Get most targeted proteins
-        target_connections = dti_df['target_id'].value_counts().head(25)
-        top_targets = targets_df[targets_df['target_id'].isin(target_connections.index)]
+        # Most connected drugs and targets, one row each, ranked by distinct partners
+        top_drugs = most_connected(dti_df, drugs_df, "drug_id")
+        top_targets = most_connected(dti_df, targets_df, "target_id")
         
         # Create scrollable drug list
         drug_list_items = []
@@ -1525,7 +1525,7 @@ def run_similarity_analysis():
                         html.Span(f" ({row['drug_id']})", style={"color": "#7f8c8d", "fontSize": "12px"})
                     ], style={"marginBottom": "2px"}),
                     html.Div([
-                        html.Span(f"{drug_connections[row['drug_id']]} targets", style={"color": "#27ae60", "fontSize": "11px"}),
+                        html.Span(f"{row['connections']} targets", style={"color": "#27ae60", "fontSize": "11px"}),
                         html.Span(" | ", style={"color": "#bdc3c7", "margin": "0 5px"}),
                         html.Span(f"Status: {'Approved' if row['approved'] else 'Experimental'}", 
                                 style={"color": "#3498db" if row['approved'] else "#e67e22", "fontSize": "11px"})
@@ -1549,7 +1549,7 @@ def run_similarity_analysis():
                         html.Span(f" ({row['target_id']})", style={"color": "#7f8c8d", "fontSize": "12px"})
                     ], style={"marginBottom": "2px"}),
                     html.Div([
-                        html.Span(f"{target_connections[row['target_id']]} drugs", style={"color": "#e74c3c", "fontSize": "11px"}),
+                        html.Span(f"{row['connections']} drugs", style={"color": "#e74c3c", "fontSize": "11px"}),
                         html.Span(" | ", style={"color": "#bdc3c7", "margin": "0 5px"}),
                         html.Span(f"Organism: {row['organism']}", style={"color": "#9b59b6", "fontSize": "11px"})
                     ])
@@ -1783,11 +1783,24 @@ def run_advanced_analytics(n_clicks, analytics_type, drug_id):
         print(f"Analytics error: {error_details}")
         return f"Error running analytics: {str(e)}", "", f"Error: {str(e)}", "", {"display": "none"}
 
-BASELINE_LABELS = {
+RESULTS_PATH = Path("results/results.json")
+SPLIT_LABELS = {"random": "Random edge split", "drug_holdout": "Per-drug holdout"}
+METHOD_LABELS = {
+    "random_forest": "Random forest",
+    "chance": "Chance",
+    "common_neighbors": "Common neighbours",
     "preferential_attachment": "Preferential attachment",
     "l3_paths": "Length-3 paths",
-    "embedding_dot": "Embedding dot product",
 }
+
+
+def load_results():
+    """results/results.json, or None if training has not been run."""
+    if not RESULTS_PATH.exists():
+        return None
+    import json
+    return json.loads(RESULTS_PATH.read_text())
+
 
 # ML Evaluation Callbacks
 @app.callback(
@@ -1800,111 +1813,70 @@ BASELINE_LABELS = {
     prevent_initial_call=False
 )
 def load_evaluation_data(_):
-    """Load and display ML evaluation data."""
-    try:
-        # Load evaluation results
-        eval_path = Path("models/evaluation_results.pkl")
-        if not eval_path.exists():
-            return "Evaluation data not found. Please run training first.", "", "", "", go.Figure()
-        
-        with open(eval_path, 'rb') as f:
-            eval_results = pickle.load(f)
-        
-        # Extract data
-        model_perf = eval_results['model_performance']
-        baseline_results = eval_results['baselines']
-        calibration_results = eval_results['calibration']
-        
-        # Performance summary
-        summary = html.Div([
-            html.P(f"ROC AUC: {model_perf['auc']:.4f}", style={"color": "#27ae60", "fontWeight": "500"}),
-            html.P(f"PR AUC: {model_perf['pr_auc']:.4f}", style={"color": "#27ae60", "fontWeight": "500"}),
-            html.P(f"Average Precision: {model_perf['ap_score']:.4f}", style={"color": "#27ae60", "fontWeight": "500"}),
-            html.P(f"Test Set: {model_perf['test_positives']} positive, {model_perf['test_negatives']} negative edges"),
-            html.P(f"Training Set: {model_perf['train_positives']} positive, {model_perf['train_negatives']} negative pairs"),
-            html.P(f"Validation: {model_perf['split']}; features use only the message graph",
-                   style={"color": "#7f8c8d", "fontSize": "12px"})
-        ])
-        
-        # Model comparison
-        comparison = html.Div([
-            html.P("Random Forest vs Baselines:", style={"fontWeight": "500", "marginBottom": "10px"}),
-            *[html.P(f"vs {BASELINE_LABELS[name]}: {model_perf['auc'] - b['roc_auc']:+.3f} AUC")
-              for name, b in baseline_results.items() if b.get('roc_auc') is not None],
-            html.P("Common neighbours, Jaccard and Adamic-Adar are always 0 for a drug and a "
-                   "target in a bipartite graph, so they are not compared.",
-                   style={"color": "#7f8c8d", "fontSize": "12px"})
-        ])
-        
-        # Calibration info
-        calibration_info = html.Div([
-            html.P(f"Brier Score: {calibration_results['brier_score']:.4f}", style={"color": "#e74c3c", "fontWeight": "500"}),
-            html.P("Lower is better (0.0 = perfect calibration)"),
-            html.P("Reliability curve shows prediction confidence vs actual frequency")
-        ])
-        
-        # Performance leaderboard
-        leaderboard = html.Div([
-            html.Table([
-                html.Thead([
-                    html.Tr([
-                        html.Th("Method", style={"padding": "8px", "textAlign": "left"}),
-                        html.Th("ROC AUC", style={"padding": "8px", "textAlign": "center"}),
-                        html.Th("AP Score", style={"padding": "8px", "textAlign": "center"})
-                    ])
-                ]),
-                html.Tbody([
-                    html.Tr([
-                        html.Td("Random Forest", style={"padding": "8px", "fontWeight": "500", "color": "#27ae60"}),
-                        html.Td(f"{model_perf['auc']:.4f}", style={"padding": "8px", "textAlign": "center", "fontWeight": "500"}),
-                        html.Td(f"{model_perf['ap_score']:.4f}", style={"padding": "8px", "textAlign": "center", "fontWeight": "500"})
-                    ]),
-                    *[html.Tr([
-                        html.Td(BASELINE_LABELS[name], style={"padding": "8px"}),
-                        html.Td(f"{b['roc_auc']:.4f}", style={"padding": "8px", "textAlign": "center"}),
-                        html.Td(f"{b['ap_score']:.4f}", style={"padding": "8px", "textAlign": "center"})
-                    ]) for name, b in baseline_results.items() if b.get('roc_auc') is not None]
-                ])
-            ], style={"width": "100%", "borderCollapse": "collapse", "border": "1px solid #dee2e6"})
-        ])
-        
-        # Calibration plot
-        fig = go.Figure()
-        
-        # Add reliability curve
-        fig.add_trace(go.Scatter(
-            x=calibration_results['mean_predicted_value'],
-            y=calibration_results['fraction_of_positives'],
-            mode='lines+markers',
-            name='Model Calibration',
-            line=dict(color='#3498db', width=3),
-            marker=dict(size=8)
-        ))
-        
-        # Add perfect calibration line
-        fig.add_trace(go.Scatter(
-            x=[0, 1],
-            y=[0, 1],
-            mode='lines',
-            name='Perfect Calibration',
-            line=dict(color='#e74c3c', width=2, dash='dash')
-        ))
-        
-        fig.update_layout(
-            title="Model Calibration (Reliability Curve)",
-            xaxis_title="Mean Predicted Probability",
-            yaxis_title="Fraction of Positives",
-            xaxis=dict(range=[0, 1]),
-            yaxis=dict(range=[0, 1]),
-            showlegend=True,
-            height=400
-        )
-        
-        return summary, comparison, calibration_info, leaderboard, fig
-        
-    except Exception as e:
-        error_msg = f"Error loading evaluation data: {str(e)}"
-        return error_msg, "", "", "", go.Figure()
+    """Show the evaluation from results/results.json (written by train_ml_models.py)."""
+    results = load_results()
+    if results is None:
+        msg = "No results yet. Run: python train_ml_models.py"
+        return msg, "", "", "", go.Figure()
+
+    def fmt(block, key, ci_key):
+        lo, hi = block[ci_key]
+        return f"{block[key]:.3f} ({lo:.3f}–{hi:.3f})"
+
+    splits = results["splits"]
+    summary = html.Div([
+        html.Div([
+            html.H5(SPLIT_LABELS[kind], style={"marginBottom": "4px"}),
+            html.P(split["description"], style={"color": "#7f8c8d", "fontSize": "12px"}),
+            html.P(f"ROC AUC: {fmt(split['random_forest'], 'roc_auc', 'roc_auc_ci95')}"),
+            html.P(f"Average precision: "
+                   f"{fmt(split['random_forest'], 'average_precision', 'average_precision_ci95')}"),
+            html.P(f"Test pairs: {split['counts']['test_positives']:,} positive, "
+                   f"{split['counts']['test_negatives']:,} negative"),
+        ]) for kind, split in splits.items()
+    ] + [html.P("Brackets: 95% bootstrap interval over test pairs.",
+                style={"color": "#7f8c8d", "fontSize": "12px"})])
+
+    comparison = html.P(results["metrics_note"], style={"fontSize": "12px"})
+    calibration_info = html.Div([
+        html.P(f"Brier score, {SPLIT_LABELS[kind]}: {split['random_forest']['brier_score']:.4f}")
+        for kind, split in splits.items()
+    ] + [html.P("Lower is better (0 = perfect).")])
+
+    methods = ["random_forest"] + list(next(iter(splits.values()))["baselines"])
+    rows = []
+    for m in methods:
+        cells = [html.Td(METHOD_LABELS[m], style={"padding": "8px"})]
+        for split in splits.values():
+            block = split["random_forest"] if m == "random_forest" else split["baselines"][m]
+            cells += [html.Td(fmt(block, "roc_auc", "roc_auc_ci95"),
+                              style={"padding": "8px", "textAlign": "center"}),
+                      html.Td(fmt(block, "average_precision", "average_precision_ci95"),
+                              style={"padding": "8px", "textAlign": "center"})]
+        rows.append(html.Tr(cells))
+    header = [html.Th("Method", style={"padding": "8px", "textAlign": "left"})]
+    for kind in splits:
+        header += [html.Th(f"{SPLIT_LABELS[kind]} ROC AUC", style={"padding": "8px"}),
+                   html.Th(f"{SPLIT_LABELS[kind]} AP", style={"padding": "8px"})]
+    leaderboard = html.Table([html.Thead(html.Tr(header)), html.Tbody(rows)],
+                             style={"width": "100%", "borderCollapse": "collapse",
+                                    "border": "1px solid #dee2e6"})
+
+    fig = go.Figure()
+    eval_path = Path("models/evaluation_results.pkl")
+    if eval_path.exists():
+        per_split = pd.read_pickle(eval_path)
+        for kind, ev in per_split.items():
+            cal = ev["calibration"]
+            fig.add_trace(go.Scatter(x=cal["mean_predicted_value"], y=cal["fraction_of_positives"],
+                                     mode="lines+markers", name=SPLIT_LABELS[kind]))
+    fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines", name="Perfect calibration",
+                             line=dict(dash="dash")))
+    fig.update_layout(title="Calibration on held-out pairs",
+                      xaxis_title="Mean predicted probability",
+                      yaxis_title="Fraction that are known interactions",
+                      xaxis=dict(range=[0, 1]), yaxis=dict(range=[0, 1]), height=400)
+    return summary, comparison, calibration_info, leaderboard, fig
 
 # Community Graph Click Prevention Callback
 @app.callback(
