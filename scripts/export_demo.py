@@ -47,8 +47,8 @@ def reason(G, drug, target):
     n = sum(1 for o in G.neighbors(target) if o != drug and mine & set(G.neighbors(o)))
     if n:
         return {"kind": "shared_target_path", "supporting_drugs": n,
-                "text": f"{n} drug{'s' if n != 1 else ''} that share a target with this drug "
-                        f"already bind{'s' if n == 1 else ''} it."}
+                "text": (f"1 drug that shares a target with this drug already binds it." if n == 1
+                         else f"{n} drugs that share a target with this drug already bind it.")}
     return {"kind": "graph_position", "supporting_drugs": 0,
             "text": "No shared-target path; the score comes from degree and embedding position."}
 
@@ -102,7 +102,7 @@ def main():
         "generated_on": date.today().isoformat(),
         "command": "python scripts/export_demo.py OUT.json"
                    + (" --include-known" if args.include_known else ""),
-        "git_commit": results["git_commit"],
+        "results_git_commit": results["git_commit"],
         "source": {k: results["source"][k] for k in ("file", "version", "exported_on")},
         "model": {
             "description": results["model"],
