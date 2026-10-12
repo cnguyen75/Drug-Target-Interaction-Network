@@ -70,3 +70,21 @@ def test_bootstrap_ci_brackets_point_estimate():
     s = [0.2, 0.8] * 50
     ci = bootstrap_ci(y, s, n_boot=100)
     assert ci["roc_auc_ci95"] == [1.0, 1.0]
+
+
+def test_score_candidates_matches_per_pair_features():
+    from synthetic import synthetic_tables
+    from pipeline.embeddings import embed_graph
+
+    p = _predictor("final")
+    p.set_embeddings(embed_graph(p.train_graph, dims=128, walks=2, walklen=10))
+    p.train_model()
+    drug = sorted(p.drug_nodes)[3]
+    target = sorted(p.target_nodes)[5]
+    fast = p.score_candidates(drug)
+    for t in list(fast)[:15]:
+        assert abs(fast[t] - p.predict_interaction(drug, t)) < 1e-9
+    fast_t = p.score_candidates(target)
+    for d in list(fast_t)[:15]:
+        assert abs(fast_t[d] - p.predict_interaction(d, target)) < 1e-9
+    assert not any(p.G.has_edge(drug, t) for t in fast)

@@ -355,6 +355,51 @@ class DTILinkPredictor:
         """Interaction probabilities for many (drug, target) pairs."""
         return self.model.predict_proba(self.scaler.transform(self._features(pairs)))[:, 1]
 
+    def score_candidates(self, node, candidates=None):
+        """Scores for every unlinked partner of one node, as {partner_id: score}.
+
+        For a drug the partners are targets; for a target, drugs. Partners
+        already linked in the full graph are excluded. Features are computed
+        exactly as extract_features_safe does, but with one BFS from `node`
+        instead of one per pair. In a bipartite graph a drug and a target share
+        no neighbours, so the common-neighbour features are 0 and the
+        neighbourhood union is the sum of the two degrees.
+        """
+        is_drug = node in self.drug_nodes
+        pool = self.target_nodes if is_drug else self.drug_nodes
+        if candidates is None:
+            candidates = [n for n in sorted(pool)
+                          if self.G.degree(n) > 0 and not self.G.has_edge(node, n)]
+        if not candidates:
+            return {}
+        g = self.train_graph
+        dist = nx.single_source_shortest_path_length(g, node)
+        k = g.degree(node)
+        other_deg = np.array([g.degree(c) for c in candidates], dtype=float)
+        sp = np.array([dist.get(c, -1) for c in candidates], dtype=float)
+
+        emb = self.embeddings_df
+        node_vec = np.zeros(128)
+        cand_vecs = np.zeros((len(candidates), 128))
+        if emb is not None:
+            if node in emb.index:
+                node_vec = emb.loc[node].values
+            present = [i for i, c in enumerate(candidates) if c in emb.index]
+            if present:
+                cand_vecs[present] = emb.loc[[candidates[i] for i in present]].values
+        dot = cand_vecs @ node_vec if emb is not None else np.zeros(len(candidates))
+
+        n = len(candidates)
+        drug_deg = np.full(n, k, dtype=float) if is_drug else other_deg
+        target_deg = other_deg if is_drug else np.full(n, k, dtype=float)
+        drug_mean = np.full(n, node_vec.mean()) if is_drug else cand_vecs.mean(axis=1)
+        target_mean = cand_vecs.mean(axis=1) if is_drug else np.full(n, node_vec.mean())
+        zeros = np.zeros(n)
+        X = np.column_stack([drug_deg, target_deg, zeros, drug_deg * target_deg, zeros, zeros,
+                             sp, zeros, drug_deg + target_deg, dot, drug_mean, target_mean])
+        scores = self.model.predict_proba(self.scaler.transform(X))[:, 1]
+        return dict(zip(candidates, scores))
+
     def save_model(self, filepath):
         """Save the trained model."""
         with open(filepath, "wb") as f:
