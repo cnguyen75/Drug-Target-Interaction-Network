@@ -11,5 +11,6 @@ node2vec==0.4.3
 setuptools==75.8.0  # node2vec imports pkg_resources, removed from newer setuptools
 gensim==4.4.0
 python-louvain==0.16
+rdkit==2024.9.6  # attribute model only (train_attribute_model.py)
 pytest==9.1.1
 ruff==0.17.0

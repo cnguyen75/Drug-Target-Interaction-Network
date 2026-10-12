@@ -8,6 +8,14 @@
     <indication>Test indication.</indication>
     <groups><group>approved</group></groups>
     <atc-codes><atc-code code="A01AB01"/></atc-codes>
+    <categories>
+      <category><category>Test Category One</category><mesh-id>D000001</mesh-id></category>
+      <category><category>Test Category Two</category><mesh-id>D000002</mesh-id></category>
+    </categories>
+    <classification>
+      <kingdom>Organic compounds</kingdom><superclass>Test superclass</superclass>
+      <class>Test class</class><subclass>Test subclass</subclass><direct-parent>Test parent</direct-parent>
+    </classification>
     <calculated-properties>
       <property><kind>logP</kind><value>3.5</value></property>
       <property><kind>SMILES</kind><value>CC(C)CC1=CC=C(C=C1)C(C)C(=O)O</value></property>
@@ -20,7 +28,8 @@
         <name>Test target one</name>
         <organism>Homo sapiens</organism>
         <actions><action>inhibitor</action></actions>
-        <polypeptide id="P12345"><name>Test protein one</name><gene-name>TST1</gene-name></polypeptide>
+        <polypeptide id="P12345"><name>Test protein one</name><gene-name>TST1</gene-name>
+          <pfams><pfam><identifier>PF00001</identifier><name>Test family</name></pfam></pfams></polypeptide>
       </target>
       <target>
         <name>Test target one again</name>

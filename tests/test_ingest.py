@@ -154,3 +154,18 @@ class TestDrugBankIngest:
         assert sorted(drugs_df["drug_id"]) == ["DB00001", "DB00002", "DB00003"]
         assert "Nested reference" not in drugs_df["name"].values
         assert len(dti_df) == 3
+
+
+def test_attribute_parsing():
+    """Categories, ChemOnt classification and Pfam families (attribute model inputs)."""
+    from datasources.drugbank_attributes import parse_attributes
+
+    xml_path = Path(__file__).parent / "fixtures" / "tiny_drugbank.xml"
+    drugs, targets = parse_attributes(xml_path)
+    a = drugs.set_index("drug_id").loc["DB00001"]
+    assert a["categories"] == "Test Category One|Test Category Two"
+    assert a["class"] == "Test class" and a["direct_parent"] == "Test parent"
+    assert drugs.set_index("drug_id").loc["DB00002", "categories"] == ""
+    t = targets.set_index("target_id")
+    assert t.loc["P12345", "pfams"] == "PF00001"
+    assert "P99999" not in t.index and "P88888" not in t.index

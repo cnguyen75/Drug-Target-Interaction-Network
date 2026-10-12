@@ -22,6 +22,7 @@ dependencies = [
     "setuptools==75.8.0",
     "gensim==4.4.0",
     "python-louvain==0.16",
+    "rdkit==2024.9.6",
 ]
 
 [project.optional-dependencies]

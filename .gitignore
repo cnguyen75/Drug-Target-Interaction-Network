@@ -9,6 +9,7 @@ data/
 models/
 results/*
 !results/results.json
+!results/results_attributes.json
 !results/README.md
 
 # Virtual environment

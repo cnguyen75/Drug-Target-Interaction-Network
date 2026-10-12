@@ -48,6 +48,9 @@ SPLIT_DESCRIPTIONS = {
     "random": "Random edge split 60/20/20 (message/train/test), uniform random negatives",
     "drug_holdout": ("Per-drug holdout: 20% of drugs with 2+ targets are test drugs with half "
                      "their edges hidden; negatives use the same drug and a degree-matched target"),
+    "cold_drug": ("Whole-drug holdout: 20% of drugs with a known target have every edge removed "
+                  "and are tested; another 20% are made cold the same way for training; negatives "
+                  "use the same drug and a degree-matched target"),
     "final": ("All edges, per-drug protocol: half the edges of 40% of drugs with 2+ targets "
               "are training positives (a quarter of those drugs held back for validation and "
               "calibration); every drug keeps at least one edge; no test set"),
@@ -145,6 +148,8 @@ class DTILinkPredictor:
             test = []
         elif kind == "drug_holdout":
             train, test = self._drug_holdout(edges)
+        elif kind == "cold_drug":
+            train, test = self._cold_drug(edges)
         else:
             raise ValueError(f"unknown split {kind!r}")
 
@@ -170,7 +175,7 @@ class DTILinkPredictor:
         the message graph and test set are unchanged and no random draws are
         consumed.
         """
-        if kind in ("drug_holdout", "final"):
+        if kind in ("drug_holdout", "final", "cold_drug"):
             n_val = int(len(self.train_drugs) * frac)
             self.val_drugs = set(self.train_drugs[len(self.train_drugs) - n_val:])
             val = [e for e in train if e[0] in self.val_drugs]
@@ -178,6 +183,20 @@ class DTILinkPredictor:
             return fit, val
         n_val = int(len(train) * frac)
         return train[:len(train) - n_val], train[len(train) - n_val:]
+
+    def _cold_drug(self, edges, drug_frac=0.2):
+        """Whole-drug holdout: every edge of the test drugs (and of the training
+        drugs, so training looks like testing) is removed from the message graph."""
+        by_drug = {}
+        for d, t in edges:
+            by_drug.setdefault(d, []).append((d, t))
+        eligible = sorted(by_drug)
+        order = [eligible[i] for i in self.rng.permutation(len(eligible))]
+        n = int(len(order) * drug_frac)
+        self.test_drugs, self.train_drugs = order[:n], order[n:2 * n]
+        train = [e for d in self.train_drugs for e in by_drug[d]]
+        test = [e for d in self.test_drugs for e in by_drug[d]]
+        return train, test
 
     def _drug_holdout(self, edges, drug_frac=0.2, edge_frac=0.5, test=True):
         by_drug = {}
@@ -211,7 +230,8 @@ class DTILinkPredictor:
         whose job is ranking candidate targets for one drug.
         """
         if scheme is None:
-            scheme = "degree_matched" if self.split in ("drug_holdout", "final") else "uniform"
+            scheme = ("degree_matched" if self.split in ("drug_holdout", "final", "cold_drug")
+                      else "uniform")
         if scheme == "degree_matched":
             return self._degree_matched_negatives(positives, exclude)
         return self._uniform_negatives(len(positives), exclude)
@@ -402,7 +422,7 @@ class DTILinkPredictor:
             "test_negatives": len(test_neg),
             **bootstrap_ci(y_test, proba, seed=self.seed),
         })
-        if self.split == "drug_holdout":
+        if self.split in ("drug_holdout", "cold_drug"):
             perf["test_drugs"] = len(self.test_drugs)
 
         self.evaluation_results.update({
