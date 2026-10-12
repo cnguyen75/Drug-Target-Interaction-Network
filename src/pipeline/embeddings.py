@@ -20,6 +20,23 @@ except ImportError:
     sys.exit(1)
 
 
+def embed_graph(G, dims: int = 128, walklen: int = 40, walks: int = 10, seed: int = 42):
+    """Node2Vec embeddings for the non-isolated nodes of G, as a DataFrame indexed by node_id.
+
+    Uses the same settings as train_embeddings (p=q=1, window=10). workers=1 and a
+    fixed seed make the walks reproducible; gensim also needs PYTHONHASHSEED set.
+    """
+    G = G.subgraph([n for n in G.nodes() if G.degree(n) > 0])
+    g2v = Node2Vec(G, dimensions=dims, walk_length=walklen, num_walks=walks,
+                   workers=1, p=1, q=1, seed=seed, quiet=True)
+    model = g2v.fit(window=10, min_count=1, batch_words=4, seed=seed, workers=1)
+    node_ids = list(G.nodes())
+    vectors = np.vstack([model.wv[str(n)] for n in node_ids])
+    df = pd.DataFrame(vectors, index=pd.Index(node_ids, name="node_id"),
+                      columns=[f"e{j}" for j in range(dims)])
+    return df
+
+
 def train_embeddings(dims: int = 128, epochs: int = 3, walklen: int = 40, 
                     walks: int = 10, seed: int = 42, g_bip_fp=None, emb_fp=None):
     """
