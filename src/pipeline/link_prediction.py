@@ -147,7 +147,7 @@ class DTILinkPredictor:
             # Same protocol as the per-drug split, without a test set: hide half
             # the edges of 40% of drugs with 2+ targets, never a drug's last
             # edge, so every drug with a known target stays visible to the model.
-            train, _ = self._drug_holdout(edges, drug_frac=0.4, test=False)
+            train, _ = self._drug_holdout(edges, drug_frac=0.4, test=False, keep_targets=True)
             test = []
         elif kind == "drug_holdout":
             train, test = self._drug_holdout(edges)
@@ -156,7 +156,7 @@ class DTILinkPredictor:
         elif kind == "final_cold":
             # App copy for drugs with no known targets: the whole-drug protocol
             # without a test set (a quarter of drugs made cold for training).
-            train, _ = self._cold_drug(edges, drug_frac=0.25, test=False)
+            train, _ = self._cold_drug(edges, drug_frac=0.25, test=False, keep_targets=True)
             test = []
         else:
             raise ValueError(f"unknown split {kind!r}")
@@ -192,15 +192,35 @@ class DTILinkPredictor:
         n_val = int(len(train) * frac)
         return train[:len(train) - n_val], train[len(train) - n_val:]
 
-    def _cold_drug(self, edges, drug_frac=0.2, test=True):
+    def _cold_drug(self, edges, drug_frac=0.2, test=True, keep_targets=False):
         """Whole-drug holdout: every edge of the test drugs (and of the training
-        drugs, so training looks like testing) is removed from the message graph."""
+        drugs, so training looks like testing) is removed from the message graph.
+
+        keep_targets (used for the app's copy): skip a drug if removing it would
+        leave one of its targets with no edge, because when a new drug arrives
+        every existing target still has its binders. Without this, training
+        saw isolated targets that never occur in use, and the model learned to
+        rank them first.
+        """
         by_drug = {}
         for d, t in edges:
             by_drug.setdefault(d, []).append((d, t))
         eligible = sorted(by_drug)
         order = [eligible[i] for i in self.rng.permutation(len(eligible))]
         n = int(len(order) * drug_frac)
+        if keep_targets:
+            remaining = {}
+            for _, t in edges:
+                remaining[t] = remaining.get(t, 0) + 1
+            chosen = []
+            for d in order:
+                if len(chosen) == n:
+                    break
+                if all(remaining[t] > 1 for _, t in by_drug[d]):
+                    for _, t in by_drug[d]:
+                        remaining[t] -= 1
+                    chosen.append(d)
+            order = chosen
         if test:
             self.test_drugs, self.train_drugs = order[:n], order[n:2 * n]
         else:
@@ -209,7 +229,7 @@ class DTILinkPredictor:
         test = [e for d in self.test_drugs for e in by_drug[d]]
         return train, test
 
-    def _drug_holdout(self, edges, drug_frac=0.2, edge_frac=0.5, test=True):
+    def _drug_holdout(self, edges, drug_frac=0.2, edge_frac=0.5, test=True, keep_targets=False):
         by_drug = {}
         for d, t in edges:
             by_drug.setdefault(d, []).append((d, t))
@@ -221,12 +241,22 @@ class DTILinkPredictor:
         else:
             self.test_drugs, self.train_drugs = [], order[:n]
 
+        remaining = {}
+        for _, t in edges:
+            remaining[t] = remaining.get(t, 0) + 1
+
         def hide(drugs):
             hidden = []
             for d in drugs:
                 es = by_drug[d]
                 k = max(1, math.floor(len(es) * edge_frac))
-                hidden += [es[i] for i in self.rng.permutation(len(es))[:k]]
+                picked = [es[i] for i in self.rng.permutation(len(es))[:k]]
+                if keep_targets:
+                    # never take a target's last edge (see _cold_drug)
+                    picked = [e for e in picked if remaining[e[1]] > 1]
+                    for _, t in picked:
+                        remaining[t] -= 1
+                hidden += picked
             return hidden
 
         return hide(self.train_drugs), hide(self.test_drugs)

@@ -105,3 +105,25 @@ def test_cold_copy_scores_a_drug_with_no_known_targets():
     scores = p.score_candidates(lonely)
     assert len(scores) == sum(1 for t in p.target_nodes if p.G.degree(t) > 0)
     assert all(0 <= s <= 1 for s in scores.values())
+
+
+def test_app_copies_never_isolate_a_target():
+    for kind in ("final", "final_cold"):
+        p = DTILinkPredictor(seed=3, train_negatives="degree_matched")
+        p.load_data(*synthetic_tables())
+        p.split_edges(kind)
+        for t in p.target_nodes:
+            if p.G.degree(t) > 0:
+                assert p.train_graph.degree(t) >= 1, (kind, t)
+        assert p.train_edges
+
+
+def test_evaluation_splits_unchanged_by_keep_targets_option():
+    """keep_targets is off for evaluation splits, so they may still isolate targets."""
+    a = DTILinkPredictor(seed=3, train_negatives="degree_matched")
+    a.load_data(*synthetic_tables())
+    a.split_edges("cold_drug")
+    b = DTILinkPredictor(seed=3, train_negatives="degree_matched")
+    b.load_data(*synthetic_tables())
+    b.split_edges("cold_drug")
+    assert a.test_edges == b.test_edges
