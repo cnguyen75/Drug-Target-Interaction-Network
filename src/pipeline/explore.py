@@ -70,9 +70,10 @@ def evidence(G, node, partner, emb=None, max_names=2, label=None):
             who = f"{', '.join(shown)} and {len(support) - max_names} more"
         else:
             who = _join(shown)
+        verb = "shares" if len(support) == 1 else "share"
         if is_drug:
-            return f"Bound by {who}, which share targets with {name}."
-        return f"Binds {who}, which share drugs with {name}."
+            return f"Bound by {who}, which {verb} targets with {name}."
+        return f"Binds {who}, which {verb} drugs with {name}."
 
     if emb is not None and node in emb.index:
         same_type = [n for n in emb.index if n in G and G.nodes[n]["node_type"] ==
@@ -88,16 +89,24 @@ def evidence(G, node, partner, emb=None, max_names=2, label=None):
     return "No shared-target path in the data; the score comes from degree and embedding position."
 
 
-def neighbourhood(G, node, scores, min_score, max_known=24, max_related=8, max_predicted=5):
-    """Nodes and edges around `node` for the network figure and the table view."""
-    known = sorted(G.neighbors(node), key=lambda n: (-G.degree(n), n))
+def neighbourhood(G, node, scores, min_score, max_known=24, max_related=8, max_predicted=5,
+                  keep=None):
+    """Nodes and edges around `node` for the network figure and the table view.
+
+    Known partners are ordered most-connected first and capped at max_known.
+    `keep(n)` can hide nodes (for example non-small-molecule drug entries);
+    hidden known partners are counted in known_hidden.
+    """
+    keep = keep or (lambda n: True)
+    all_known = sorted(G.neighbors(node), key=lambda n: (-G.degree(n), n))
+    known = [k for k in all_known if keep(k)]
     known_shown = known[:max_known]
-    known_set = set(known)
+    known_set = set(all_known)
 
     related = {}
     for k in known_shown:
         for other in G.neighbors(k):
-            if other != node:
+            if other != node and keep(other):
                 related.setdefault(other, set()).add(k)
     related_shown = sorted(related, key=lambda o: (-len(related[o]), -G.degree(o), o))[:max_related]
 
@@ -112,7 +121,8 @@ def neighbourhood(G, node, scores, min_score, max_known=24, max_related=8, max_p
     return {
         "center": node,
         "known": known_shown,
-        "known_total": len(known),
+        "known_total": len(all_known),
+        "known_hidden": len(all_known) - len(known),
         "related": related_shown,
         "related_shared": {o: sorted(related[o]) for o in related_shown},
         "predicted": predicted,
