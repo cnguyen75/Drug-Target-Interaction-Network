@@ -145,6 +145,7 @@ details summary { cursor: pointer; font-weight: 600; min-height: 32px; }
   .pred-table tr, .pred-table td { display: block; border: 0; padding: 0; }
   .pred-table tr { border-bottom: 1px solid var(--rule); padding: 10px 0; }
   .pred-table td.num { text-align: left; }
-  .pred-table td.num::before { content: "score "; color: var(--secondary); }
+  .pred-table td.score::before { content: "score "; color: var(--secondary); }
+  .pred-table td.known-drugs::before { content: "target's known drugs "; color: var(--secondary); }
   .pred-table td + td { margin-top: 4px; }
 }

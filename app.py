@@ -36,13 +36,16 @@ SPLIT_LABELS = {
     "random": "Random edge split",
     "drug_holdout": "Per-drug split (controls for target popularity)",
 }
+MODEL_LABELS = {"uniform": "Random forest, uniform negatives",
+                "degree_matched": "Random forest, degree-matched negatives"}
 METHOD_LABELS = {
     "random_forest": "Random forest",
     "l3_paths": "Length-3 paths",
     "preferential_attachment": "Preferential attachment",
     "chance": "Chance",
 }
-SHOWN_METHODS = ["random_forest", "l3_paths", "preferential_attachment", "chance"]
+NEGATIVE_WORDS = {"uniform": "uniform-negative", "degree_matched": "degree-matched"}
+OTHER_SCHEME = {"uniform": "degree_matched", "degree_matched": "uniform"}
 DEFAULT_NODE_NAME = "Imatinib"
 
 
@@ -70,6 +73,15 @@ DRUGS, TARGETS, G, PREDICTOR, EMB, RESULTS, PREDICTIONS = load()
 DRUG_INFO = DRUGS.set_index("drug_id")
 TARGET_INFO = TARGETS.set_index("target_id")
 FEATURED = set(DRUGS.loc[featured_mask(DRUGS), "drug_id"])
+SMALL_MOLECULES = set(DRUGS.loc[DRUGS["type"] == "small molecule", "drug_id"])
+APP_SCHEME = RESULTS["app_model"]["train_negatives"]
+DEFAULT_THRESHOLD = RESULTS.get("app_suggestions", {}).get("default_threshold", 0.9)
+PHONE_WIDTH = 640
+
+
+def small_molecule_or_target(n):
+    """Default graph filter: hide drug entries that are not small molecules."""
+    return not is_drug(n) or n in SMALL_MOLECULES
 
 
 def is_drug(n):
@@ -178,10 +190,15 @@ def explore_view(node):
                               options=[{"label": "Known interactions", "value": "known"},
                                        {"label": "Predicted links", "value": "predicted"},
                                        {"label": "Nodes that share a partner", "value": "shared"}]),
+                dcc.Checklist(id="all-types", value=[], className="checks",
+                              options=[{"label": "Show all entry types", "value": "all"}]),
+                html.Div("Off: drug entries that are not small molecules (biologics, cell "
+                         "therapies) are left out of the graph but kept in the table.",
+                         className="secondary small"),
             ]),
             html.Div([
                 html.Div("Minimum prediction score", className="field-title"),
-                dcc.Slider(id="min-score", min=0, max=1, step=0.05, value=0.7,
+                dcc.Slider(id="min-score", min=0, max=1, step=0.05, value=DEFAULT_THRESHOLD,
                            marks=None, tooltip=None, className="slider"),
                 mono(id="min-score-label"),
             ]),
@@ -201,8 +218,11 @@ def explore_view(node):
                         type="dot", color=INK),
             html.Div(id="nb-table", className="nb-table"),
             html.Div([mono("click a node to recentre · drag to pan"),
+                      html.Button(id="more-link", n_clicks=0, className="link-button",
+                                  style={"display": "none"}),
                       html.Button("view as table", id="table-toggle", n_clicks=0,
                                   className="link-button")], className="card-foot"),
+            dcc.Store(id="table-on", data=False),
         ], className="card network"),
         html.Aside(dcc.Loading(html.Div(id="details"), type="dot", color=INK),
                    className="card details"),
@@ -291,13 +311,20 @@ def empty_figure(message):
     return fig
 
 
-def score_row(name, full_name, score, href, reason):
+def score_text(score, shown):
+    """Two decimals when they tell this candidate apart; '=' marks a tie."""
+    text = f"{score:.2f}"
+    tied = sum(f"{s:.2f}" == text for s in shown) > 1
+    return ("=" + text, True) if tied else (text, False)
+
+
+def score_row(name, full_name, score, href, reason, shown=()):
     return html.Div([
         html.Div([
             dcc.Link(name, href=href, className="row-name"),
             html.Span(html.Span(style={"width": f"{score * 100:.0f}%"}, className="bar-fill purple"),
                       className="bar-track"),
-            html.Span(f"{score:.2f}", className="row-score"),
+            html.Span(score_text(score, shown)[0], className="row-score"),
         ], className="score-row"),
         html.Div(full_name, className="full-name") if full_name else None,
         html.Div(reason, className="reason"),
@@ -318,13 +345,21 @@ def details_panel(node, nb, scores, min_score):
         info = TARGET_INFO.loc[node]
         meta = f"UniProt {node}" + (f" · gene {info['gene_symbol']}" if info["gene_symbol"] else "")
         note = None
-    ranked = [(p, s) for p, s in sorted(scores.items(), key=lambda x: (-x[1], x[0])) if s >= min_score]
+    ranked = [(p, s) for p, s in sorted(scores.items(), key=lambda x: (-x[1], G.degree(x[0]), x[0]))
+              if s >= min_score]
+    shown = [s for _, s in ranked[:5]]
     heading = "Suggested new targets" if drug else "Suggested drugs (approved small molecules)"
     if ranked:
         rows = [score_row(label(p), None if label(p) == G.nodes[p]["name"] else G.nodes[p]["name"], s,
-                          f"/?{urlencode({'node': p})}", evidence(G, node, p, EMB, label=label))
+                          f"/?{urlencode({'node': p})}", evidence(G, node, p, EMB, label=label), shown)
                 for p, s in ranked[:5]]
-        more = mono(f"{len(ranked)} candidates at {min_score:.2f} or above; top 5 shown")
+        ties = any(score_text(s, shown)[1] for s in shown)
+        more = html.Div([
+            mono(f"{len(ranked)} candidate{'s' if len(ranked) != 1 else ''} at {min_score:.2f} or above"
+                 + ("; top 5 shown" if len(ranked) > 5 else "")),
+            html.Div("= marks tied scores; the model cannot order those candidates.",
+                     className="secondary small") if ties else None,
+        ])
     else:
         rows = [html.P(f"No suggestions at {min_score:.2f} or above. Lower the minimum score to see "
                        "weaker candidates.", className="empty")]
@@ -337,9 +372,11 @@ def details_panel(node, nb, scores, min_score):
                   f" known {'targets' if drug else 'drugs'}"], className="secondary"),
         html.Div([
             html.Div(heading, className="field-title"),
-            html.Div("Ranked by the model's score. A score is a ranking signal, not a probability "
-                     "that the interaction is real; many top scores tie near 1.00.",
-                     className="secondary small"),
+            html.Div("Ranked by calibrated score, then by how rare the target is. A score of 0.9 "
+                     "means that, in validation, 90% of pairs scored that high were known "
+                     "interactions in a sample with one non-interaction per interaction. Real "
+                     "non-interactions are far more common, so read it as a ranking, not a chance "
+                     "the interaction is real.", className="secondary small"),
         ]),
         html.Div(rows, className="score-list"),
         more,
@@ -355,12 +392,13 @@ def predictions_view():
             html.P("No predictions yet. Run: python predict_links.py", className="empty"),
         ], className="card"))
     top = PREDICTIONS[PREDICTIONS["rank"] == 1].sort_values(
-        ["score", "support", "drug_id"], ascending=[False, False, True]).head(40)
+        ["score", "target_known_drugs", "drug_id"], ascending=[False, True, True]).head(40)
     rows = [html.Tr([
         html.Td(dcc.Link(DRUG_INFO.at[r.drug_id, "name"], href=f"/?{urlencode({'node': r.drug_id})}")),
         html.Td([html.Span(label(r.target_id), className="strong"), html.Br(),
                  html.Span(TARGET_INFO.at[r.target_id, "name"], className="secondary small")]),
-        html.Td(f"{r.score:.2f}", className="num"),
+        html.Td(f"{r.target_known_drugs:,}", className="num known-drugs"),
+        html.Td(f"{r.score:.2f}", className="num score"),
         html.Td(r.evidence, className="secondary small"),
     ]) for r in top.itertuples()]
     n_drugs = PREDICTIONS["drug_id"].nunique()
@@ -369,10 +407,13 @@ def predictions_view():
                   mono(f"{len(top)} of {n_drugs:,} featured drugs shown")], className="card-head"),
         html.P("Each featured drug's highest-scoring target it has no recorded interaction with. "
                "Featured means an approved small molecule, excluding ions, salts and supplements. "
-               "Ties in score are broken by how many drugs support the link through a shared target. "
-               "These are hypotheses ranked by a model, not findings.", className="secondary"),
+               "Ranked by calibrated score, then by target specificity: at equal scores, a target "
+               "with fewer known drugs ranks above a very common one. The known-drugs column shows "
+               "how popular each target already is. These are hypotheses ranked by a model, not "
+               "findings.", className="secondary"),
         html.Div(html.Table([
-            html.Thead(html.Tr([html.Th("Drug"), html.Th("Suggested target"), html.Th("Score"),
+            html.Thead(html.Tr([html.Th("Drug"), html.Th("Suggested target"),
+                                html.Th("Target's known drugs"), html.Th("Score"),
                                 html.Th("Support in the data")])),
             html.Tbody(rows),
         ], className="table pred-table"), className="table-wrap"),
@@ -398,23 +439,24 @@ def metric_bar(name, block, primary, key="roc_auc"):
 
 
 def split_panel(kind, split):
-    def block(m):
-        return split["random_forest"] if m == "random_forest" else split["baselines"][m]
-
+    models = split["models"]
+    rows = [(MODEL_LABELS[m] + (" (app)" if m == APP_SCHEME else ""), models[m], True)
+            for m in ("uniform", "degree_matched")]
+    rows += [(METHOD_LABELS[b], split["baselines"][b], False)
+             for b in ("l3_paths", "preferential_attachment", "chance")]
     c = split["counts"]
     test_line = (f"{c['test_positives']:,} held-out interactions and {c['test_negatives']:,} "
                  "sampled non-interactions")
     if kind == "drug_holdout":
         test_line += f" across {c['test_drugs']:,} test drugs"
-    ap_rows = [html.Tr([html.Td(METHOD_LABELS[m]),
-                        html.Td(f"{block(m)['average_precision']:.3f}", className="num"),
-                        html.Td("{:.3f}–{:.3f}".format(*block(m)["average_precision_ci95"]),
-                                className="num mono")]) for m in SHOWN_METHODS]
+    ap_rows = [html.Tr([html.Td(name), html.Td(f"{b['average_precision']:.3f}", className="num"),
+                        html.Td("{:.3f}–{:.3f}".format(*b["average_precision_ci95"]),
+                                className="num mono")]) for name, b, _ in rows]
     return html.Div([
         html.H3(SPLIT_LABELS[kind]),
         html.P(split["description"] + ".", className="secondary small"),
         html.Div("ROC AUC on held-out pairs", className="field-title"),
-        *[metric_bar(METHOD_LABELS[m], block(m), m == "random_forest") for m in SHOWN_METHODS],
+        *[metric_bar(name, b, primary) for name, b, primary in rows],
         mono(test_line + " · bars show the score, the dark band its 95% interval"),
         html.Details([
             html.Summary("Average precision"),
@@ -424,18 +466,37 @@ def split_panel(kind, split):
     ], className="split")
 
 
+def why_sentence():
+    """Why the two splits disagree, written from results.json."""
+    s = RESULTS["splits"]
+    u_r, u_d = (s[k]["models"]["uniform"]["roc_auc"] for k in ("random", "drug_holdout"))
+    d_r, d_d = (s[k]["models"]["degree_matched"]["roc_auc"] for k in ("random", "drug_holdout"))
+    return (f"Each model does best where its test negatives look like its training negatives. The "
+            f"random split's test negatives are uniform pairs, which mostly involve rarely studied "
+            f"targets, so preferring popular targets pays: the uniform-negative model scores "
+            f"{u_r:.2f} there but {u_d:.2f} on the per-drug split. The degree-matched model has "
+            f"learned not to lean on popularity, so it scores {d_r:.2f} on the random split and "
+            f"{d_d:.2f} on the per-drug split. The random split also strands one-target drugs with "
+            f"no edges left, which the per-drug split avoids by keeping at least one per test drug.")
+
+
 def evaluation_view():
     splits = RESULTS["splits"]
-    rf = {k: v["random_forest"] for k, v in splits.items()}
+    app_m = RESULTS["app_model"]
+    val = app_m["per_drug_validation"]
+    app_rf = {k: v["models"][APP_SCHEME] for k, v in splits.items()}
     return html.Section(html.Div([
         html.Div([html.H2("How good are the predictions?"),
                   mono(f"from results.json · run {RESULTS.get('run_date', 'date not recorded')} · "
                        f"commit {RESULTS['git_commit']}")], className="card-head"),
+        html.P(["Two random forests differ only in their training negatives: uniform random "
+                "pairs, or pairs that use the same drug and a target of similar popularity. The "
+                f"app uses the {NEGATIVE_WORDS[APP_SCHEME]} model, chosen on the per-drug split's "
+                f"validation drugs (ROC AUC {val[APP_SCHEME]['roc_auc']:.3f} against "
+                f"{val[OTHER_SCHEME[APP_SCHEME]]['roc_auc']:.3f}) before any test pair was scored."],
+               className="secondary"),
         html.Div([split_panel(k, v) for k, v in splits.items()], className="splits"),
-        html.P("The random split scores lower mainly because hiding 40% of edges at random strands "
-               "many one-target drugs with no edges left, so the model sees nothing about them; the "
-               "per-drug split only tests drugs with two or more targets and leaves each at least one.",
-               className="why"),
+        html.P(why_sentence(), className="why"),
         html.Div([
             html.H3("Read this before trusting it"),
             html.Ul([
@@ -447,15 +508,15 @@ def evaluation_view():
                          "cannot be scored. These numbers say nothing about brand-new compounds."]),
                 html.Li([html.Strong("Negatives are unmeasured, not disproven. "),
                          "They are pairs with no recorded interaction; some are real interactions "
-                         "nobody has tested. The random split samples them uniformly; the per-drug "
-                         "split uses the same drug and a target of similar degree."]),
+                         "nobody has tested. The random split's test negatives are uniform; the "
+                         "per-drug split's use the same drug and a target of similar degree."]),
                 html.Li([html.Strong("Balanced test sets. "),
                          "One negative per positive, so average precision near 0.5 is chance. Real "
                          "screening has far more non-interactions, and precision would be lower."]),
                 html.Li([html.Strong("Scores are rankings. "),
-                         f"Brier scores are {rf['random']['brier_score']:.3f} (random) and "
-                         f"{rf['drug_holdout']['brier_score']:.3f} (per-drug) on balanced data; do not "
-                         "read a score as the chance an interaction is real."]),
+                         f"Brier scores for the app's model are {app_rf['random']['brier_score']:.3f} "
+                         f"(random) and {app_rf['drug_holdout']['brier_score']:.3f} (per-drug), on "
+                         "balanced data and before calibration."]),
                 html.Li([html.Strong("Intervals cover test-pair sampling only. "),
                          f"{splits['random']['bootstrap_resamples']:,} bootstrap resamples of the test "
                          "pairs; they do not cover a different split seed or a different DrugBank "
@@ -466,6 +527,36 @@ def evaluation_view():
 
 
 # ----- methods view ----------------------------------------------------------
+
+def app_model_paragraph():
+    m = RESULTS["app_model"]
+    val = m["per_drug_validation"]
+    other = OTHER_SCHEME[m["train_negatives"]]
+    return (f"The app uses the random forest trained with {RESULTS['negative_schemes'][m['train_negatives']]}. "
+            f"On the per-drug split's validation drugs it scored ROC AUC "
+            f"{val[m['train_negatives']]['roc_auc']:.3f}, against {val[other]['roc_auc']:.3f} for "
+            f"{RESULTS['negative_schemes'][other]}; that comparison was made before any test pair "
+            "was scored. Uniform negatives teach the model that popular targets are likely partners, "
+            "which pushed the same few receptors to the top of every drug's list. The app's copy is "
+            "retrained on all known edges (80% as the message graph, 20% as training positives, a "
+            "quarter of those held back) and its scores are calibrated with isotonic regression on "
+            f"that held-back set (validation ROC AUC {m['validation']['roc_auc']:.3f}).")
+
+
+def suggestions_paragraph():
+    a = RESULTS.get("app_suggestions")
+    if not a:
+        return "Suggestions have not been generated yet. Run: python predict_links.py"
+    med = a["median_candidates_at_or_above"]
+    counts = ", ".join(f"{float(t):.2f}: {v:g}" for t, v in med.items())
+    return (f"For every drug, every target it has no recorded interaction with is scored, then "
+            f"ranked by calibrated score and, at equal scores, by how few known drugs the target "
+            f"has. The median featured drug has this many candidates at or above each score "
+            f"({counts}). The default minimum score is {a['default_threshold']:.2f}: the "
+            f"{a['default_threshold_rule']}. Scores that round to the same two decimals are marked "
+            "with '=' because the model cannot order them.")
+
+
 
 def methods_view():
     ds = RESULTS["dataset"]
@@ -497,9 +588,12 @@ def methods_view():
                "drugs and targets that have at least one interaction."),
         html.P("Per-drug split (controls for target popularity): 20% of drugs with two or more "
                "targets are test drugs and half of each one's edges are hidden; another 20% supply "
-               "training positives the same way. Every positive is paired with a negative for the "
-               "same drug and a target in the same degree bin (log2 of its degree), so preferring "
-               "popular targets earns nothing."),
+               "training positives the same way. Every test positive is paired with a negative for "
+               "the same drug and a target in the same degree bin (log2 of its degree), so "
+               "preferring popular targets earns nothing."),
+        html.P("In both splits a quarter of the training positives (by drug in the per-drug split) "
+               "is held back as a validation set. Choices are made on validation; each test set is "
+               "scored once, after the choices."),
         html.H3("Baselines"),
         html.P("Length-3 paths counts drug → target′ → drug′ → target routes. Preferential "
                "attachment multiplies the two degrees. Chance gives every pair the same score."),
@@ -508,13 +602,15 @@ def methods_view():
                "count is 0 for every pair, it ties everything and scores exactly 0.5. Length-3 paths "
                "is its bipartite counterpart. The same holds for Jaccard, Adamic-Adar and resource "
                "allocation, which is why those four model features are always 0."),
+        html.H3("Which model the app uses, and why"),
+        html.P(app_model_paragraph()),
         html.H3("Suggestions and evidence"),
-        html.P("The app's model is trained on all known edges (80% as the message graph, 20% as "
-               "training positives) and scores every target a drug has no recorded interaction "
-               "with. The one-line support under each suggestion is read from the data, not from "
-               "the model: drugs that bind the suggested target and share a target with the "
-               "selected drug, or, failing that, the drug's 25 nearest neighbours in the embedding "
-               "that bind it."),
+        html.P(suggestions_paragraph()),
+        html.P("The one-line support under each suggestion is read from the data, not from the "
+               "model: drugs that bind the suggested target and share a target with the selected "
+               "drug, or, failing that, the drug's 25 nearest neighbours in the embedding that bind "
+               "it. Drug entries that are not small molecules (biologics, cell therapies) are left "
+               "out of the graph by default and kept in the table."),
         html.H3("What the first version got wrong"),
         html.Ul([
             html.Li([html.Strong("Leakage. "),
@@ -552,6 +648,7 @@ server = app.server
 
 app.layout = html.Div([
     dcc.Location(id="url"),
+    dcc.Store(id="viewport-width"),
     html.Div([header(), html.Main(id="page")], className="wrap"),
 ], className="page")
 
@@ -580,10 +677,21 @@ def recentre(click, current):
     return current
 
 
+app.clientside_callback(
+    "function(path) { return window.innerWidth; }",
+    Output("viewport-width", "data"), Input("url", "pathname"))
+
+
+@app.callback(Output("table-on", "data"), Input("table-toggle", "n_clicks"),
+              Input("more-link", "n_clicks"), State("table-on", "data"), prevent_initial_call=True)
+def flip_table(_, __, on):
+    return not on
+
+
 @app.callback(Output("table-toggle", "children"), Output("nb-table", "style"),
-              Output("nb-graph", "style"), Input("table-toggle", "n_clicks"))
-def toggle_table(n):
-    if n % 2:
+              Output("nb-graph", "style"), Input("table-on", "data"))
+def toggle_table(on):
+    if on:
         return "view as network", {"display": "block"}, {"display": "none"}
     return "view as table", {"display": "none"}, {}
 
@@ -595,26 +703,38 @@ def min_score_label(v):
 
 @app.callback(Output("nb-graph", "figure"), Output("nb-title", "children"), Output("nb-meta", "children"),
               Output("details", "children"), Output("nb-table", "children"),
-              Input("node-search", "value"), Input("show", "value"), Input("min-score", "value"))
-def render(node, show, min_score):
+              Output("more-link", "children"), Output("more-link", "style"),
+              Input("node-search", "value"), Input("show", "value"), Input("min-score", "value"),
+              Input("all-types", "value"), Input("viewport-width", "data"))
+def render(node, show, min_score, all_types, width):
+    hidden = {"display": "none"}
     if not node:
         msg = "Search for a drug or target to see its neighbourhood."
         return (empty_figure(msg), "No selection", "", html.P(msg, className="empty"),
-                html.P(msg, className="empty"))
+                html.P(msg, className="empty"), "", hidden)
+    phone = bool(width) and width <= PHONE_WIDTH
+    keep = None if all_types else small_molecule_or_target
     scores = suggestions(node)
-    nb = neighbourhood(G, node, scores, min_score)
+    nb = neighbourhood(G, node, scores, min_score, max_known=12 if phone else 24,
+                       max_related=5 if phone else 8, keep=keep)
+    full = neighbourhood(G, node, scores, min_score, max_known=10 ** 6, max_related=8)
     drug = is_drug(node)
-    meta = (f"{nb['known_total']} known {'targets' if drug else 'drugs'}"
-            + (f" (showing {len(nb['known'])})" if nb["known_total"] > len(nb["known"]) else "")
+    partners = "targets" if drug else "drugs"
+    meta = (f"{nb['known_total']} known {partners}"
+            + (f", {nb['known_hidden']} other entry types hidden" if nb["known_hidden"] else "")
             + f" · {len(nb['predicted'])} predicted · {len(nb['related'])} related "
             + ("drugs" if drug else "targets"))
-    table = edge_table(G, nb)
+    not_drawn = nb["known_total"] - len(nb["known"])
+    more_text, more_style = "", hidden
+    if not_drawn:
+        more_text, more_style = f"+{not_drawn} more, view as table", {}
+    table = edge_table(G, full)
     table_el = html.Div(html.Table([
         html.Thead(html.Tr([html.Th(c.capitalize()) for c in table.columns])),
         html.Tbody([html.Tr([html.Td(v) for v in row]) for row in table.itertuples(index=False)]),
     ], className="table compact"), className="table-wrap")
     return (network_figure(nb, show or []), f"{G.nodes[node]['name']} and its neighbourhood", meta,
-            details_panel(node, nb, scores, min_score), table_el)
+            details_panel(node, nb, scores, min_score), table_el, more_text, more_style)
 
 
 if __name__ == "__main__":
