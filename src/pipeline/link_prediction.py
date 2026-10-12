@@ -47,7 +47,8 @@ SPLIT_DESCRIPTIONS = {
     "random": "Random edge split 60/20/20 (message/train/test), uniform random negatives",
     "drug_holdout": ("Per-drug holdout: 20% of drugs with 2+ targets are test drugs with half "
                      "their edges hidden; negatives use the same drug and a degree-matched target"),
-    "final": "All edges: 80% message graph, 20% training positives; no test set",
+    "final": ("All edges: 80% message graph, 20% training positives (a quarter of them "
+              "held back for validation and calibration); no test set"),
 }
 
 
@@ -79,8 +80,15 @@ def bootstrap_ci(y, scores, n_boot=1000, seed=42, alpha=0.05):
 class DTILinkPredictor:
     """Drug-Target Interaction Link Predictor using machine learning."""
 
-    def __init__(self, seed=42):
+    def __init__(self, seed=42, train_negatives="uniform"):
+        """train_negatives: "uniform" (random unlinked pairs) or "degree_matched"
+        (same drug, target from the same degree bin) for the training pairs.
+        Validation and test negatives always follow the split's own protocol."""
+        if train_negatives not in ("uniform", "degree_matched"):
+            raise ValueError(f"unknown train_negatives {train_negatives!r}")
         self.seed = seed
+        self.train_negatives = train_negatives
+        self.calibrator = None
         self.rng = np.random.default_rng(seed)
         self.model = None
         self.scaler = StandardScaler()
@@ -90,6 +98,8 @@ class DTILinkPredictor:
         self.train_graph = None  # the message graph features are computed on
         self.message_edges = []
         self.train_edges = []
+        self.fit_edges = []
+        self.val_edges = []
         self.test_edges = []
         self.embeddings_df = None
 
@@ -136,14 +146,33 @@ class DTILinkPredictor:
         held = set(train) | set(test)
         self.split = kind
         self.train_edges, self.test_edges = train, test
+        self.fit_edges, self.val_edges = self._carve_validation(kind, train)
         self.message_edges = [e for e in edges if e not in held]
         self.train_graph = nx.Graph()
         self.train_graph.add_nodes_from(self.G.nodes(data=True))
         self.train_graph.add_edges_from(self.message_edges)
 
         print(f"{kind} split (seed {self.seed}): {len(self.message_edges)} message edges, "
-              f"{len(train)} train edges, {len(test)} test edges")
+              f"{len(self.fit_edges)} fit, {len(self.val_edges)} validation, {len(test)} test edges")
         return train, test
+
+    def _carve_validation(self, kind, train, frac=0.25):
+        """Hold back a quarter of the training positives for validation.
+
+        Per-drug split: the last quarter of the (already shuffled) training
+        drugs. Otherwise: the last quarter of the (already shuffled) training
+        edges. Validation edges are already absent from the message graph, so
+        the message graph and test set are unchanged and no random draws are
+        consumed.
+        """
+        if kind == "drug_holdout":
+            n_val = int(len(self.train_drugs) * frac)
+            self.val_drugs = set(self.train_drugs[len(self.train_drugs) - n_val:])
+            val = [e for e in train if e[0] in self.val_drugs]
+            fit = [e for e in train if e[0] not in self.val_drugs]
+            return fit, val
+        n_val = int(len(train) * frac)
+        return train[:len(train) - n_val], train[len(train) - n_val:]
 
     def _drug_holdout(self, edges, drug_frac=0.2, edge_frac=0.5):
         by_drug = {}
@@ -166,9 +195,16 @@ class DTILinkPredictor:
 
     # ----- negatives ----------------------------------------------------------
 
-    def sample_negatives(self, positives, exclude=frozenset()):
-        """One negative per positive, following the current split's protocol."""
-        if self.split == "drug_holdout":
+    def sample_negatives(self, positives, exclude=frozenset(), scheme=None):
+        """One negative per positive: degree-matched or uniform.
+
+        scheme defaults to the split's protocol: uniform for the random split;
+        degree-matched for the per-drug split and for the app's final model,
+        whose job is ranking candidate targets for one drug.
+        """
+        if scheme is None:
+            scheme = "degree_matched" if self.split in ("drug_holdout", "final") else "uniform"
+        if scheme == "degree_matched":
             return self._degree_matched_negatives(positives, exclude)
         return self._uniform_negatives(len(positives), exclude)
 
@@ -263,36 +299,84 @@ class DTILinkPredictor:
 
     # ----- training and evaluation -------------------------------------------
 
-    def train_model(self):
-        """Fit on the current split's training pairs; evaluate on its test pairs if any."""
+    def train_model(self, evaluate_test=True):
+        """Fit on the fit pairs, score the validation pairs, and (optionally) the test pairs."""
+        self.fit()
+        self.validate()
+        if evaluate_test and self.test_edges:
+            self.evaluate_test()
+        return self.evaluation_results["model_performance"]
+
+    def fit(self):
+        """Fit the forest on the fit positives and their negatives."""
         if self.train_graph is None:
             self.split_edges("random")
-
-        train_neg = self.sample_negatives(self.train_edges)
-        X = self._features(self.train_edges + train_neg)
-        y = np.array([1] * len(self.train_edges) + [0] * len(train_neg))
+        self.fit_neg = self.sample_negatives(self.fit_edges, scheme=self.train_negatives)
+        X = self._features(self.fit_edges + self.fit_neg)
+        y = np.array([1] * len(self.fit_edges) + [0] * len(self.fit_neg))
         self.model = RandomForestClassifier(n_estimators=100, random_state=self.seed, n_jobs=-1)
         self.model.fit(self.scaler.fit_transform(X), y)
-
-        perf = {
+        self.calibrator = None
+        self.evaluation_results = {"model_performance": {
             "split": self.split,
             "split_description": SPLIT_DESCRIPTIONS[self.split],
+            "train_negatives": self.train_negatives,
             "message_edges": len(self.message_edges),
-            "train_positives": len(self.train_edges),
-            "train_negatives": len(train_neg),
-        }
-        self.evaluation_results = {"model_performance": perf}
-        if not self.test_edges:
-            return perf
+            "fit_positives": len(self.fit_edges),
+            "fit_negatives": len(self.fit_neg),
+        }}
 
-        test_neg = self.sample_negatives(self.test_edges, exclude=set(train_neg))
+    def _raw_scores(self, pairs):
+        return self.model.predict_proba(self.scaler.transform(self._features(pairs)))[:, 1]
+
+    def validate(self):
+        """Score validation pairs (negatives follow the split's protocol)."""
+        self.val_neg = self.sample_negatives(self.val_edges, exclude=set(self.fit_neg))
+        pairs = self.val_edges + self.val_neg
+        self.val_labels = np.array([1] * len(self.val_edges) + [0] * len(self.val_neg))
+        self.val_scores = self._raw_scores(pairs)
+        roc, ap = _ranking_metrics(self.val_labels, self.val_scores)
+        self.evaluation_results["model_performance"].update({
+            "val_positives": len(self.val_edges), "val_negatives": len(self.val_neg),
+            "val_auc": roc, "val_ap_score": ap,
+        })
+        print(f"[{self.split}/{self.train_negatives}] validation ROC AUC {roc:.4f}, AP {ap:.4f}")
+        return roc, ap
+
+    def calibrate(self, method="isotonic"):
+        """Fit a score calibrator on the validation pairs (isotonic or platt)."""
+        from sklearn.isotonic import IsotonicRegression
+        from sklearn.linear_model import LogisticRegression
+
+        if method == "isotonic":
+            cal = IsotonicRegression(out_of_bounds="clip").fit(self.val_scores, self.val_labels)
+            self.calibrator = ("isotonic", cal)
+        elif method == "platt":
+            cal = LogisticRegression().fit(self.val_scores.reshape(-1, 1), self.val_labels)
+            self.calibrator = ("platt", cal)
+        else:
+            raise ValueError(method)
+
+    def _calibrated(self, raw):
+        if self.calibrator is None:
+            return raw
+        kind, cal = self.calibrator
+        if kind == "isotonic":
+            return cal.predict(raw)
+        return cal.predict_proba(raw.reshape(-1, 1))[:, 1]
+
+    def evaluate_test(self):
+        """Score the test pairs once: metrics, intervals, baselines, calibration curve."""
+        exclude = set(self.fit_neg) | set(self.val_neg)
+        test_neg = self.sample_negatives(self.test_edges, exclude=exclude)
         pairs = self.test_edges + test_neg
         y_test = np.array([1] * len(self.test_edges) + [0] * len(test_neg))
-        proba = self.model.predict_proba(self.scaler.transform(self._features(pairs)))[:, 1]
+        proba = self._raw_scores(pairs)
 
         roc, ap = _ranking_metrics(y_test, proba)
         precision, recall, _ = precision_recall_curve(y_test, proba)
         frac_pos, mean_pred = calibration_curve(y_test, proba, n_bins=10)
+        perf = self.evaluation_results["model_performance"]
         perf.update({
             "auc": roc,
             "ap_score": ap,
@@ -314,7 +398,8 @@ class DTILinkPredictor:
             "test_labels": y_test,
             "test_scores": proba,
         })
-        print(f"[{self.split}] ROC AUC {roc:.4f} {perf['roc_auc_ci95']}, AP {ap:.4f} {perf['ap_ci95']}")
+        print(f"[{self.split}/{self.train_negatives}] test ROC AUC {roc:.4f} {perf['roc_auc_ci95']}, "
+              f"AP {ap:.4f} {perf['ap_ci95']}")
         return perf
 
     def _l3_paths(self, drug_id, target_id):
@@ -349,11 +434,12 @@ class DTILinkPredictor:
         if self.model is None:
             raise ValueError("Model not trained. Call train_model() first.")
         features = self.extract_features_safe(drug_id, target_id, use_train_graph=True)
-        return self.model.predict_proba(self.scaler.transform(features.reshape(1, -1)))[0, 1]
+        raw = self.model.predict_proba(self.scaler.transform(features.reshape(1, -1)))[:, 1]
+        return float(self._calibrated(raw)[0])
 
     def score_pairs(self, pairs):
-        """Interaction probabilities for many (drug, target) pairs."""
-        return self.model.predict_proba(self.scaler.transform(self._features(pairs)))[:, 1]
+        """Scores (calibrated if a calibrator is fitted) for many (drug, target) pairs."""
+        return self._calibrated(self._raw_scores(pairs))
 
     def score_candidates(self, node, candidates=None):
         """Scores for every unlinked partner of one node, as {partner_id: score}.
@@ -397,7 +483,7 @@ class DTILinkPredictor:
         zeros = np.zeros(n)
         X = np.column_stack([drug_deg, target_deg, zeros, drug_deg * target_deg, zeros, zeros,
                              sp, zeros, drug_deg + target_deg, dot, drug_mean, target_mean])
-        scores = self.model.predict_proba(self.scaler.transform(X))[:, 1]
+        scores = self._calibrated(self.model.predict_proba(self.scaler.transform(X))[:, 1])
         return dict(zip(candidates, scores))
 
     def save_model(self, filepath):

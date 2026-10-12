@@ -9,8 +9,8 @@ from pipeline.link_prediction import DTILinkPredictor, bootstrap_ci
 from synthetic import synthetic_tables
 
 
-def _predictor(split):
-    p = DTILinkPredictor(seed=1)
+def _predictor(split, train_negatives="uniform"):
+    p = DTILinkPredictor(seed=1, train_negatives=train_negatives)
     p.load_data(*synthetic_tables())
     p.split_edges(split)
     return p
@@ -88,3 +88,35 @@ def test_score_candidates_matches_per_pair_features():
     for d in list(fast_t)[:15]:
         assert abs(fast_t[d] - p.predict_interaction(d, target)) < 1e-9
     assert not any(p.G.has_edge(drug, t) for t in fast)
+
+
+def test_validation_carved_from_training_and_disjoint():
+    for split in ("random", "drug_holdout", "final"):
+        p = _predictor(split)
+        assert set(p.fit_edges) | set(p.val_edges) == set(p.train_edges)
+        assert not set(p.fit_edges) & set(p.val_edges)
+        assert not set(p.val_edges) & set(p.test_edges)
+        for d, t in p.val_edges:
+            assert not p.train_graph.has_edge(d, t)
+    p = _predictor("drug_holdout")
+    assert {d for d, _ in p.val_edges} == p.val_drugs
+    assert not {d for d, _ in p.fit_edges} & p.val_drugs
+
+
+def test_validation_does_not_change_message_graph_or_test():
+    a = _predictor("drug_holdout")
+    b = _predictor("drug_holdout", train_negatives="degree_matched")
+    assert a.test_edges == b.test_edges and a.message_edges == b.message_edges
+
+
+def test_degree_matched_training_negatives_and_calibration():
+    p = _predictor("drug_holdout", train_negatives="degree_matched")
+    p.fit()
+    assert all(fd == pd for (pd, _), (fd, _) in zip(p.fit_edges, p.fit_neg))
+    p.validate()
+    p.calibrate("isotonic")
+    s = p.score_pairs(p.val_edges[:5])
+    assert ((0 <= s) & (s <= 1)).all()
+    p.calibrate("platt")
+    s2 = p.score_pairs(p.val_edges[:5])
+    assert ((0 <= s2) & (s2 <= 1)).all()
