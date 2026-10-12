@@ -1,0 +1,207 @@
+{
+  "commands": [
+    "python src/datasources/drugbank_loader.py",
+    "python train_ml_models.py"
+  ],
+  "git_commit": "b7db530",
+  "python": "3.11.14",
+  "seed": 42,
+  "runtime_seconds": 442.0,
+  "run_date": "2026-10-12",
+  "source": {
+    "file": "drugbank_all_full_database.xml.zip",
+    "version": "5.1",
+    "exported_on": "2025-01-02",
+    "note": "DrugBank full database export; licensed data, not in the repo"
+  },
+  "dataset": {
+    "drugs": 17430,
+    "drugs_with_human_target": 7393,
+    "human_targets": 2981,
+    "interactions": 18038,
+    "approved_drugs": 4477
+  },
+  "model": "RandomForestClassifier(n_estimators=100) on 12 graph and Node2Vec features",
+  "metrics_note": "ROC AUC and average precision on held-out pairs (1:1 positives to negatives); 95% percentile bootstrap intervals over test pairs. Chance and common neighbours tie every pair, so both score 0.5 by construction.",
+  "splits": {
+    "random": {
+      "description": "Random edge split 60/20/20 (message/train/test), uniform random negatives",
+      "counts": {
+        "message_edges": 10824,
+        "train_positives": 3607,
+        "train_negatives": 3607,
+        "test_positives": 3607,
+        "test_negatives": 3607
+      },
+      "random_forest": {
+        "roc_auc": 0.8995,
+        "roc_auc_ci95": [
+          0.8927,
+          0.9068
+        ],
+        "average_precision": 0.9012,
+        "average_precision_ci95": [
+          0.8919,
+          0.9104
+        ],
+        "pr_auc_trapezoidal": 0.9083,
+        "brier_score": 0.126
+      },
+      "baselines": {
+        "chance": {
+          "roc_auc": 0.5,
+          "roc_auc_ci95": [
+            0.5,
+            0.5
+          ],
+          "average_precision": 0.5,
+          "average_precision_ci95": [
+            0.4886,
+            0.5118
+          ]
+        },
+        "common_neighbors": {
+          "roc_auc": 0.5,
+          "roc_auc_ci95": [
+            0.5,
+            0.5
+          ],
+          "average_precision": 0.5,
+          "average_precision_ci95": [
+            0.4886,
+            0.5118
+          ]
+        },
+        "preferential_attachment": {
+          "roc_auc": 0.6399,
+          "roc_auc_ci95": [
+            0.6273,
+            0.6532
+          ],
+          "average_precision": 0.7312,
+          "average_precision_ci95": [
+            0.7187,
+            0.744
+          ]
+        },
+        "l3_paths": {
+          "roc_auc": 0.7159,
+          "roc_auc_ci95": [
+            0.7078,
+            0.7242
+          ],
+          "average_precision": 0.7179,
+          "average_precision_ci95": [
+            0.7074,
+            0.7284
+          ]
+        }
+      },
+      "feature_importances": {
+        "drug_degree": 0.0574,
+        "target_degree": 0.1553,
+        "jaccard": 0.0,
+        "preferential_attachment": 0.0878,
+        "resource_allocation": 0.0,
+        "adamic_adar": 0.0,
+        "shortest_path": 0.0914,
+        "common_neighbors": 0.0,
+        "total_neighbors": 0.1955,
+        "embedding_dot": 0.1263,
+        "drug_embedding_mean": 0.1066,
+        "target_embedding_mean": 0.1797
+      },
+      "bootstrap_resamples": 1000
+    },
+    "drug_holdout": {
+      "description": "Per-drug holdout: 20% of drugs with 2+ targets are test drugs with half their edges hidden; negatives use the same drug and a degree-matched target",
+      "counts": {
+        "message_edges": 15485,
+        "train_positives": 1249,
+        "train_negatives": 1249,
+        "test_positives": 1304,
+        "test_negatives": 1304,
+        "test_drugs": 577
+      },
+      "random_forest": {
+        "roc_auc": 0.9102,
+        "roc_auc_ci95": [
+          0.8988,
+          0.9212
+        ],
+        "average_precision": 0.9173,
+        "average_precision_ci95": [
+          0.9049,
+          0.9291
+        ],
+        "pr_auc_trapezoidal": 0.9192,
+        "brier_score": 0.1157
+      },
+      "baselines": {
+        "chance": {
+          "roc_auc": 0.5,
+          "roc_auc_ci95": [
+            0.5,
+            0.5
+          ],
+          "average_precision": 0.5,
+          "average_precision_ci95": [
+            0.4808,
+            0.5192
+          ]
+        },
+        "common_neighbors": {
+          "roc_auc": 0.5,
+          "roc_auc_ci95": [
+            0.5,
+            0.5
+          ],
+          "average_precision": 0.5,
+          "average_precision_ci95": [
+            0.4808,
+            0.5192
+          ]
+        },
+        "preferential_attachment": {
+          "roc_auc": 0.4698,
+          "roc_auc_ci95": [
+            0.4488,
+            0.4915
+          ],
+          "average_precision": 0.4808,
+          "average_precision_ci95": [
+            0.4569,
+            0.5069
+          ]
+        },
+        "l3_paths": {
+          "roc_auc": 0.8237,
+          "roc_auc_ci95": [
+            0.8087,
+            0.8384
+          ],
+          "average_precision": 0.8077,
+          "average_precision_ci95": [
+            0.7865,
+            0.8284
+          ]
+        }
+      },
+      "feature_importances": {
+        "drug_degree": 0.0446,
+        "target_degree": 0.0645,
+        "jaccard": 0.0,
+        "preferential_attachment": 0.0834,
+        "resource_allocation": 0.0,
+        "adamic_adar": 0.0,
+        "shortest_path": 0.2114,
+        "common_neighbors": 0.0,
+        "total_neighbors": 0.0674,
+        "embedding_dot": 0.358,
+        "drug_embedding_mean": 0.0828,
+        "target_embedding_mean": 0.0879
+      },
+      "bootstrap_resamples": 1000
+    }
+  }
+}
