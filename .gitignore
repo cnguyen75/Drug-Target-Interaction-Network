@@ -10,6 +10,8 @@ models/
 results/*
 !results/results.json
 !results/results_attributes.json
+!results/results_cold_similarity.json
+!results/results_attribute_ablation.json
 !results/README.md
 
 # Virtual environment

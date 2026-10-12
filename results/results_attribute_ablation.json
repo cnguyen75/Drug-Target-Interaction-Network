@@ -1,0 +1,54 @@
+{
+  "command": "python scripts/ablate_attributes_validation.py",
+  "split": "cold_drug (whole-drug holdout), validation drugs only; test set not used",
+  "validation_positives": 954,
+  "validation_drugs": 369,
+  "variants": {
+    "all attribute features": {
+      "dropped": [],
+      "val_roc_auc": 0.794,
+      "val_roc_auc_ci95": [
+        0.7743,
+        0.8125
+      ],
+      "val_average_precision": 0.8207
+    },
+    "without categories": {
+      "dropped": [
+        "category_max_jaccard"
+      ],
+      "val_roc_auc": 0.7693,
+      "val_roc_auc_ci95": [
+        0.7491,
+        0.7896
+      ],
+      "val_average_precision": 0.8027
+    },
+    "without categories and ATC": {
+      "dropped": [
+        "category_max_jaccard",
+        "atc_max_jaccard"
+      ],
+      "val_roc_auc": 0.7592,
+      "val_roc_auc_ci95": [
+        0.7374,
+        0.7795
+      ],
+      "val_average_precision": 0.7909
+    },
+    "structure only": {
+      "dropped": [
+        "category_max_jaccard",
+        "atc_max_jaccard",
+        "same_class_share",
+        "same_superclass_share"
+      ],
+      "val_roc_auc": 0.756,
+      "val_roc_auc_ci95": [
+        0.735,
+        0.7767
+      ],
+      "val_average_precision": 0.7852
+    }
+  }
+}

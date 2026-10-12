@@ -1,0 +1,374 @@
+{
+  "commands": [
+    "python src/datasources/drugbank_attributes.py",
+    "python train_attribute_model.py"
+  ],
+  "git_commit": "35c1b97",
+  "run_date": "2026-10-12",
+  "python": "3.11.14",
+  "seed": 42,
+  "runtime_seconds": 322.8,
+  "attribute_features": [
+    "fp_max_binders",
+    "fp_top3_binders",
+    "fp_max_family",
+    "category_max_jaccard",
+    "atc_max_jaccard",
+    "same_class_share",
+    "same_superclass_share",
+    "has_structure"
+  ],
+  "tuning": "none; both models use the app model's settings. Validation scores are reported.",
+  "metrics_note": "ROC AUC and average precision on held-out pairs, 1:1 with degree-matched negatives on the per-drug and whole-drug splits and uniform negatives on the random split; 95% bootstrap intervals over test pairs (1,000 resamples). Both models see the same splits and negatives.",
+  "splits": {
+    "random": {
+      "description": "Random edge split 60/20/20 (message/train/test), uniform random negatives",
+      "counts": {
+        "message_edges": 10824,
+        "fit_positives": 2706,
+        "val_positives": 901,
+        "test_positives": 3607,
+        "test_negatives": 3607
+      },
+      "graph_model": {
+        "roc_auc": 0.746,
+        "roc_auc_ci95": [
+          0.7338,
+          0.7569
+        ],
+        "average_precision": 0.771,
+        "average_precision_ci95": [
+          0.7558,
+          0.7856
+        ],
+        "validation": {
+          "roc_auc": 0.7641,
+          "average_precision": 0.7995
+        }
+      },
+      "attribute_model": {
+        "roc_auc": 0.8707,
+        "roc_auc_ci95": [
+          0.863,
+          0.8794
+        ],
+        "average_precision": 0.8969,
+        "average_precision_ci95": [
+          0.8898,
+          0.905
+        ],
+        "validation": {
+          "roc_auc": 0.8905,
+          "average_precision": 0.9118
+        }
+      },
+      "baselines": {
+        "chance": {
+          "roc_auc": 0.5,
+          "roc_auc_ci95": [
+            0.5,
+            0.5
+          ],
+          "average_precision": 0.5,
+          "average_precision_ci95": [
+            0.4886,
+            0.5118
+          ]
+        },
+        "preferential_attachment": {
+          "roc_auc": 0.6449,
+          "roc_auc_ci95": [
+            0.6321,
+            0.6578
+          ],
+          "average_precision": 0.7361,
+          "average_precision_ci95": [
+            0.7235,
+            0.7485
+          ]
+        },
+        "l3_paths": {
+          "roc_auc": 0.7161,
+          "roc_auc_ci95": [
+            0.7082,
+            0.7244
+          ],
+          "average_precision": 0.7179,
+          "average_precision_ci95": [
+            0.7072,
+            0.7285
+          ]
+        },
+        "structural_nearest_neighbour": {
+          "roc_auc": 0.7786,
+          "roc_auc_ci95": [
+            0.7673,
+            0.79
+          ],
+          "average_precision": 0.8393,
+          "average_precision_ci95": [
+            0.8296,
+            0.8487
+          ]
+        }
+      },
+      "attribute_model_feature_importances": {
+        "drug_degree": 0.0295,
+        "target_degree": 0.0485,
+        "jaccard": 0.0,
+        "preferential_attachment": 0.0283,
+        "resource_allocation": 0.0,
+        "adamic_adar": 0.0,
+        "shortest_path": 0.0632,
+        "common_neighbors": 0.0,
+        "total_neighbors": 0.05,
+        "embedding_dot": 0.0986,
+        "drug_embedding_mean": 0.0461,
+        "target_embedding_mean": 0.0591,
+        "fp_max_binders": 0.1415,
+        "fp_top3_binders": 0.1233,
+        "fp_max_family": 0.1067,
+        "category_max_jaccard": 0.106,
+        "atc_max_jaccard": 0.0285,
+        "same_class_share": 0.0351,
+        "same_superclass_share": 0.0314,
+        "has_structure": 0.004
+      },
+      "test_drugs_with_structure": null,
+      "graph_model_matches_results_json": true
+    },
+    "drug_holdout": {
+      "description": "Per-drug holdout: 20% of drugs with 2+ targets are test drugs with half their edges hidden; negatives use the same drug and a degree-matched target",
+      "counts": {
+        "message_edges": 15485,
+        "fit_positives": 962,
+        "val_positives": 287,
+        "test_positives": 1304,
+        "test_negatives": 1304,
+        "test_drugs": 577
+      },
+      "graph_model": {
+        "roc_auc": 0.8902,
+        "roc_auc_ci95": [
+          0.8777,
+          0.9018
+        ],
+        "average_precision": 0.9067,
+        "average_precision_ci95": [
+          0.8932,
+          0.9191
+        ],
+        "validation": {
+          "roc_auc": 0.8544,
+          "average_precision": 0.8718
+        }
+      },
+      "attribute_model": {
+        "roc_auc": 0.9103,
+        "roc_auc_ci95": [
+          0.8982,
+          0.9207
+        ],
+        "average_precision": 0.9225,
+        "average_precision_ci95": [
+          0.9105,
+          0.9331
+        ],
+        "validation": {
+          "roc_auc": 0.9014,
+          "average_precision": 0.9139
+        }
+      },
+      "baselines": {
+        "chance": {
+          "roc_auc": 0.5,
+          "roc_auc_ci95": [
+            0.5,
+            0.5
+          ],
+          "average_precision": 0.5,
+          "average_precision_ci95": [
+            0.4808,
+            0.5192
+          ]
+        },
+        "preferential_attachment": {
+          "roc_auc": 0.5071,
+          "roc_auc_ci95": [
+            0.485,
+            0.5296
+          ],
+          "average_precision": 0.5094,
+          "average_precision_ci95": [
+            0.4843,
+            0.5372
+          ]
+        },
+        "l3_paths": {
+          "roc_auc": 0.8146,
+          "roc_auc_ci95": [
+            0.7989,
+            0.8297
+          ],
+          "average_precision": 0.7975,
+          "average_precision_ci95": [
+            0.7744,
+            0.8186
+          ]
+        },
+        "structural_nearest_neighbour": {
+          "roc_auc": 0.6569,
+          "roc_auc_ci95": [
+            0.6348,
+            0.678
+          ],
+          "average_precision": 0.7408,
+          "average_precision_ci95": [
+            0.7187,
+            0.76
+          ]
+        }
+      },
+      "attribute_model_feature_importances": {
+        "drug_degree": 0.0276,
+        "target_degree": 0.0367,
+        "jaccard": 0.0,
+        "preferential_attachment": 0.043,
+        "resource_allocation": 0.0,
+        "adamic_adar": 0.0,
+        "shortest_path": 0.1413,
+        "common_neighbors": 0.0,
+        "total_neighbors": 0.0409,
+        "embedding_dot": 0.207,
+        "drug_embedding_mean": 0.0398,
+        "target_embedding_mean": 0.0397,
+        "fp_max_binders": 0.0891,
+        "fp_top3_binders": 0.0942,
+        "fp_max_family": 0.0788,
+        "category_max_jaccard": 0.0802,
+        "atc_max_jaccard": 0.029,
+        "same_class_share": 0.0252,
+        "same_superclass_share": 0.0251,
+        "has_structure": 0.0026
+      },
+      "test_drugs_with_structure": 0.9064,
+      "graph_model_matches_results_json": true
+    },
+    "cold_drug": {
+      "description": "Whole-drug holdout: 20% of drugs with a known target have every edge removed and are tested; another 20% are made cold the same way for training; negatives use the same drug and a degree-matched target",
+      "counts": {
+        "message_edges": 10822,
+        "fit_positives": 2586,
+        "val_positives": 954,
+        "test_positives": 3676,
+        "test_negatives": 3676,
+        "test_drugs": 1478
+      },
+      "graph_model": {
+        "roc_auc": 0.5453,
+        "roc_auc_ci95": [
+          0.5333,
+          0.5587
+        ],
+        "average_precision": 0.5347,
+        "average_precision_ci95": [
+          0.5195,
+          0.5528
+        ],
+        "validation": {
+          "roc_auc": 0.5434,
+          "average_precision": 0.5312
+        }
+      },
+      "attribute_model": {
+        "roc_auc": 0.8518,
+        "roc_auc_ci95": [
+          0.8432,
+          0.8601
+        ],
+        "average_precision": 0.8623,
+        "average_precision_ci95": [
+          0.8519,
+          0.8723
+        ],
+        "validation": {
+          "roc_auc": 0.794,
+          "average_precision": 0.8207
+        }
+      },
+      "baselines": {
+        "chance": {
+          "roc_auc": 0.5,
+          "roc_auc_ci95": [
+            0.5,
+            0.5
+          ],
+          "average_precision": 0.5,
+          "average_precision_ci95": [
+            0.4895,
+            0.5114
+          ]
+        },
+        "preferential_attachment": {
+          "roc_auc": 0.5,
+          "roc_auc_ci95": [
+            0.5,
+            0.5
+          ],
+          "average_precision": 0.5,
+          "average_precision_ci95": [
+            0.4895,
+            0.5114
+          ]
+        },
+        "l3_paths": {
+          "roc_auc": 0.5,
+          "roc_auc_ci95": [
+            0.5,
+            0.5
+          ],
+          "average_precision": 0.5,
+          "average_precision_ci95": [
+            0.4895,
+            0.5114
+          ]
+        },
+        "structural_nearest_neighbour": {
+          "roc_auc": 0.6917,
+          "roc_auc_ci95": [
+            0.6781,
+            0.7039
+          ],
+          "average_precision": 0.7725,
+          "average_precision_ci95": [
+            0.7606,
+            0.7842
+          ]
+        }
+      },
+      "attribute_model_feature_importances": {
+        "drug_degree": 0.0,
+        "target_degree": 0.0623,
+        "jaccard": 0.0,
+        "preferential_attachment": 0.0,
+        "resource_allocation": 0.0,
+        "adamic_adar": 0.0,
+        "shortest_path": 0.0,
+        "common_neighbors": 0.0,
+        "total_neighbors": 0.0591,
+        "embedding_dot": 0.0,
+        "drug_embedding_mean": 0.0,
+        "target_embedding_mean": 0.0932,
+        "fp_max_binders": 0.1743,
+        "fp_top3_binders": 0.1733,
+        "fp_max_family": 0.1397,
+        "category_max_jaccard": 0.1495,
+        "atc_max_jaccard": 0.0462,
+        "same_class_share": 0.0471,
+        "same_superclass_share": 0.0502,
+        "has_structure": 0.0051
+      },
+      "test_drugs_with_structure": 0.8972
+    }
+  }
+}

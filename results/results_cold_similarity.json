@@ -1,0 +1,195 @@
+{
+  "command": "python scripts/analyze_cold_holdout.py",
+  "similarity": "max Tanimoto of the test drug to any drug with an edge in the message graph",
+  "rows": [
+    {
+      "bin": "all test drugs",
+      "test_drugs": 1478,
+      "test_positives": 3676,
+      "test_negatives": 3676,
+      "graph_model": {
+        "roc_auc": 0.5453,
+        "roc_auc_ci95": [
+          0.5333,
+          0.5587
+        ]
+      },
+      "attribute_model": {
+        "roc_auc": 0.8518,
+        "roc_auc_ci95": [
+          0.8432,
+          0.8601
+        ]
+      },
+      "structural_nearest_neighbour": {
+        "roc_auc": 0.6917,
+        "roc_auc_ci95": [
+          0.6781,
+          0.7039
+        ]
+      }
+    },
+    {
+      "bin": "identical (>= 0.999)",
+      "test_drugs": 40,
+      "test_positives": 110,
+      "test_negatives": 110,
+      "graph_model": {
+        "roc_auc": 0.6378,
+        "roc_auc_ci95": [
+          0.5566,
+          0.7098
+        ]
+      },
+      "attribute_model": {
+        "roc_auc": 0.874,
+        "roc_auc_ci95": [
+          0.8255,
+          0.9172
+        ]
+      },
+      "structural_nearest_neighbour": {
+        "roc_auc": 0.7919,
+        "roc_auc_ci95": [
+          0.726,
+          0.8575
+        ]
+      }
+    },
+    {
+      "bin": "close (0.7 to 0.999)",
+      "test_drugs": 236,
+      "test_positives": 699,
+      "test_negatives": 699,
+      "graph_model": {
+        "roc_auc": 0.528,
+        "roc_auc_ci95": [
+          0.4966,
+          0.557
+        ]
+      },
+      "attribute_model": {
+        "roc_auc": 0.8699,
+        "roc_auc_ci95": [
+          0.8511,
+          0.8885
+        ]
+      },
+      "structural_nearest_neighbour": {
+        "roc_auc": 0.7858,
+        "roc_auc_ci95": [
+          0.7596,
+          0.8118
+        ]
+      }
+    },
+    {
+      "bin": "moderate (0.4 to 0.7)",
+      "test_drugs": 568,
+      "test_positives": 1649,
+      "test_negatives": 1649,
+      "graph_model": {
+        "roc_auc": 0.5474,
+        "roc_auc_ci95": [
+          0.5272,
+          0.5661
+        ]
+      },
+      "attribute_model": {
+        "roc_auc": 0.8704,
+        "roc_auc_ci95": [
+          0.8595,
+          0.8828
+        ]
+      },
+      "structural_nearest_neighbour": {
+        "roc_auc": 0.7205,
+        "roc_auc_ci95": [
+          0.7011,
+          0.74
+        ]
+      }
+    },
+    {
+      "bin": "distant (< 0.4)",
+      "test_drugs": 482,
+      "test_positives": 872,
+      "test_negatives": 872,
+      "graph_model": {
+        "roc_auc": 0.5606,
+        "roc_auc_ci95": [
+          0.5338,
+          0.5871
+        ]
+      },
+      "attribute_model": {
+        "roc_auc": 0.8263,
+        "roc_auc_ci95": [
+          0.8078,
+          0.8458
+        ]
+      },
+      "structural_nearest_neighbour": {
+        "roc_auc": 0.7165,
+        "roc_auc_ci95": [
+          0.693,
+          0.7403
+        ]
+      }
+    },
+    {
+      "bin": "no structure",
+      "test_drugs": 152,
+      "test_positives": 346,
+      "test_negatives": 346,
+      "graph_model": {
+        "roc_auc": 0.509,
+        "roc_auc_ci95": [
+          0.4694,
+          0.5526
+        ]
+      },
+      "attribute_model": {
+        "roc_auc": 0.7955,
+        "roc_auc_ci95": [
+          0.7642,
+          0.8258
+        ]
+      },
+      "structural_nearest_neighbour": {
+        "roc_auc": 0.5,
+        "roc_auc_ci95": [
+          0.5,
+          0.5
+        ]
+      }
+    },
+    {
+      "bin": "all except identical",
+      "test_drugs": 1286,
+      "test_positives": 3220,
+      "test_negatives": 3220,
+      "graph_model": {
+        "roc_auc": 0.5465,
+        "roc_auc_ci95": [
+          0.5331,
+          0.5598
+        ]
+      },
+      "attribute_model": {
+        "roc_auc": 0.8566,
+        "roc_auc_ci95": [
+          0.8479,
+          0.866
+        ]
+      },
+      "structural_nearest_neighbour": {
+        "roc_auc": 0.7309,
+        "roc_auc_ci95": [
+          0.7175,
+          0.7442
+        ]
+      }
+    }
+  ]
+}
