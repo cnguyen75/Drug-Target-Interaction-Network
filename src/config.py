@@ -1,5 +1,6 @@
 """Configuration and path management for the DTI Explorer."""
 
+import os
 from pathlib import Path
 
 
@@ -24,8 +25,12 @@ def ensure_data_dir() -> Path:
 REPO_ROOT = get_repo_root()
 DATA_DIR = ensure_data_dir()
 
-# Raw data paths
-RAW_XML = REPO_ROOT / "data_raw" / "drugbank.xml"
+# Raw DrugBank export: the .xml.zip as downloaded (or an extracted .xml).
+# It lives outside the repo; override with DRUGBANK_PATH.
+RAW_XML = Path(os.environ.get(
+    "DRUGBANK_PATH",
+    Path.home() / "Documents" / "drugbank" / "drugbank_all_full_database.xml.zip",
+)).expanduser()
 
 # Parsed tables (parquet), written by src/datasources/drugbank_loader.py
 DRUGS_FP = REPO_ROOT / "data_raw" / "drugs_full.parquet"

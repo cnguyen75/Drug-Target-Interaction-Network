@@ -68,8 +68,9 @@ class TestDrugBankIngest:
         assert "P12345" in targets_df["target_id"].values
         assert "P67890" in targets_df["target_id"].values
         
-        # Mouse target should be excluded
+        # Mouse targets should be excluded (by label, and by taxonomy ID)
         assert "P99999" not in targets_df["target_id"].values
+        assert "P88888" not in targets_df["target_id"].values
     
     def test_missing_ids_excluded(self):
         """Test that drugs/targets with missing IDs are excluded."""

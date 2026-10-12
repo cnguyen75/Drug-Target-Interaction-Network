@@ -42,8 +42,14 @@
     <targets>
       <target>
         <name>Test target two</name>
-        <organism>Homo sapiens</organism>
-        <polypeptide id="P67890"><gene-name>TST2</gene-name></polypeptide>
+        <organism>Humans</organism>
+        <polypeptide id="P67890"><gene-name>TST2</gene-name>
+          <organism ncbi-taxonomy-id="9606">Humans</organism></polypeptide>
+      </target>
+      <target>
+        <name>Mislabelled organism, mouse taxonomy</name>
+        <organism>Humans</organism>
+        <polypeptide id="P88888"><organism ncbi-taxonomy-id="10090">Mouse</organism></polypeptide>
       </target>
       <target>
         <name>Target without polypeptide</name>
