@@ -1,3 +1,16 @@
+# DrugBank is licensed data. Never commit the export or anything derived
+# row-for-row from it (parsed tables, graphs, embeddings, models, predictions).
+drugbank/
+*drugbank*.xml
+*drugbank*.zip
+full database.xml
+data_raw/
+data/
+models/
+results/*
+!results/results.json
+!results/README.md
+
 # Virtual environment
 .venv/
 venv/
