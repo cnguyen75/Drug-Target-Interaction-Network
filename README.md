@@ -1,333 +1,70 @@
-# Drug-Target Interaction Explorer Pro
+# Drug–target interaction network
 
-A comprehensive web application for analyzing drug-target interactions using network science and machine learning. This tool provides advanced visualization, similarity analysis, link prediction, and drug discovery insights.
+![The explore view: Imatinib, its known targets, drugs that share them, and predicted targets](docs/explore.png)
 
-## 🖼️ Application Screenshots
+A Dash app and pipeline that turn a DrugBank export into a drug–target network, learn which unrecorded drug–target pairs look like real interactions, and show the evidence for each suggestion. Drugs and human protein targets form a bipartite graph; Node2Vec embeds it; a random forest scores pairs from graph and embedding features. The app has four views: **explore** (search a drug or target, see its neighbourhood and ranked suggestions), **predictions**, **evaluation** and **methods**.
 
-### Network Visualization
-![2D Network Visualization](screenshots/01-2d_network.png)
-*Interactive 2D network graph showing drug-target interactions with hover details and node selection*
+## Run it
 
-![3D Network Visualization](screenshots/02_3d_network.png)
-*Three-dimensional network visualization for enhanced spatial exploration of drug-target relationships*
-
-### Network Analysis
-![Network Analysis](screenshots/04_network-analysis.png)
-*Comprehensive network statistics and metrics panel showing graph properties and node information*
-
-### Link Prediction
-![Link Prediction](screenshots/05_link-prediction.png)
-*Machine learning-powered drug-target interaction prediction with confidence scores and model performance*
-
-### Drug Repurposing
-![Drug Repurposing](screenshots/06_drug-repurposing.png)
-*Drug repurposing analysis showing similar drugs and repurposing opportunities based on embeddings*
-
-![Drug Repurposing Results](screenshots/08_drug-repurposing.png)
-*Detailed drug repurposing results with similarity scores and target information*
-
-### Advanced Analytics
-![Drug Combination Analysis](screenshots/03_drug-combination.png)
-*Drug combination analytics identifying synergistic drug pairs and interaction warnings*
-
-![Community Analysis](screenshots/09_community-analysis.png)
-*Network community detection showing functional groups of drugs and targets*
-
-![Drug Combination Results](screenshots/10_drug-combination.png)
-*Comprehensive drug combination recommendations with complementarity scores*
-
-### ML Evaluation
-![ML Evaluation](screenshots/11_ml-evaluation.png)
-*Machine learning model evaluation with performance metrics, calibration plots, and baseline comparisons*
-
----
-
-## 🚀 Features
-
-### **Network Visualization**
-- **2D/3D Interactive Graphs** - Explore drug-target networks with Plotly
-- **Smart Node Sampling** - Handle large networks efficiently
-- **Graph Walks** - Control exploration depth (1-5 hops)
-- **Real-time Statistics** - Network metrics and node details
-
-### **Similarity Analysis**
-- **Drug Similarity** - Find similar drugs using embeddings
-- **Target Similarity** - Identify related protein targets
-- **Configurable Results** - 5-20 similar entities
-- **Cosine Similarity** - Advanced similarity scoring
-
-### **Link Prediction**
-- **ML-Powered Predictions** - Predict new drug-target interactions
-- **Probability Scores** - Confidence levels for predictions
-- **Temporal Validation** - Prevents data leakage
-- **Baseline Comparisons** - Common Neighbors, Jaccard, Adamic-Adar
-
-### **Advanced Analytics**
-- **Drug Discovery Insights** - Similar drugs and repurposing opportunities
-- **Network Communities** - Community detection and visualization
-- **Drug Combinations** - Identify synergistic drug pairs
-- **Interaction Warnings** - Potential drug-drug interactions
-
-### **ML Evaluation**
-- **Comprehensive Metrics** - ROC-AUC, PR-AUC, Average Precision
-- **Calibration Plots** - Model reliability assessment
-- **Confidence Intervals** - Statistical significance
-- **Performance Baselines** - Compare against heuristic methods
-
-## 📊 Data
-
-### **DrugBank Integration**
-- **73,687 Drugs** - Complete DrugBank database
-- **5,101 Targets** - Protein targets and enzymes
-- **23,136 Interactions** - Known drug-target relationships
-- **Full Licensing Compliance** - Users provide their own DrugBank export
-
-### **Data Sources**
-- **Primary**: DrugBank XML export (user-provided)
-- **Format**: Parquet files for fast loading
-- **Graph**: NetworkX with all entities
-- **Embeddings**: Node2Vec for similarity analysis
-
-## 🛠 Installation
-
-### **Prerequisites**
-```bash
-# Python 3.10+ required
-python --version
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### **Data Setup**
-1. **Obtain DrugBank License**: Get access to DrugBank database
-2. **Download DrugBank**: Export full database as XML
-3. **Run Pipeline**: Process data into required formats
+You need a DrugBank full-database export (`drugbank_all_full_database.xml.zip`). DrugBank gives it free to academic users under its own licence; it is not in this repository and nothing derived from it is committed.
 
 ```bash
-# Process DrugBank data
-python -m src.datasources.drugbank_loader
-
-# Build network graph
-python -m src.pipeline.build_graph
-
-# Generate embeddings
-python -m src.pipeline.embeddings
-
-# Train ML models
-python train_ml_models.py
+export DRUGBANK_PATH=~/Documents/drugbank/drugbank_all_full_database.xml.zip   # the default
+make run        # creates .venv, parses, trains, scores, then serves http://127.0.0.1:8050
 ```
 
-### **Launch Application**
-```bash
-# Start the web application
-python app.py
+`make run` runs only the steps whose outputs are missing:
 
-# Access at: http://localhost:8050
-```
+| Step | Command | Output (gitignored unless noted) |
+|---|---|---|
+| Parse DrugBank (streams the zip) | `python src/datasources/drugbank_loader.py` | `data_raw/*.parquet` |
+| Train and evaluate | `python train_ml_models.py` | `models/`, `data/`, `results/results.json` (committed) |
+| Score suggestions | `python predict_links.py` | `models/predictions.parquet` |
+| Serve | `python app.py` | |
 
-## 🏗 Architecture
+Tests use synthetic data only: `make test`. Python 3.11; versions are pinned in `requirements.txt`.
 
-### **Modular Structure**
-```
-dti-graph/
-├── app.py                    # Main application (2606 lines)
-├── app_modular.py           # Modular version (in development)
-├── src/
-│   ├── app/
-│   │   ├── layout.py        # Layout components
-│   │   └── callbacks.py     # Callback functions
-│   ├── pipeline/
-│   │   ├── advanced_analytics.py
-│   │   ├── link_prediction.py
-│   │   ├── drug_repurposing.py
-│   │   └── embeddings.py
-│   ├── datasources/
-│   │   └── drugbank_loader.py
-│   └── config.py
-├── data/                    # Processed data files
-├── data_raw/                # Raw data files
-├── models/                  # Trained ML models
-└── tests/                   # Test files
+## Results
 
-### **Key Components**
-- **Dash/Plotly**: Web framework and visualization
-- **NetworkX**: Graph operations and analysis
-- **Scikit-learn**: Machine learning models
-- **Node2Vec**: Graph embeddings
-- **Pandas**: Data manipulation
+![ROC AUC on held-out pairs for both splits, two models and three baselines](figures/evaluation.svg)
 
-## 🔬 Usage
+<!-- results:start -->
+DrugBank 5.1 (exported 2025-01-02): 7,393 drugs with a human target, 2,981 human targets, 18,038 interactions. Run 2026-10-12, commit `ab9d58a`, seed 42.
 
-### **Network Exploration**
-1. **Select Tab**: "Network Visualization"
-2. **Search**: Find drugs or targets by name
-3. **Explore**: Use graph walks to expand network
-4. **Analyze**: View network statistics and metrics
+ROC AUC and average precision on held-out pairs (one sampled non-interaction per known interaction), with 95% bootstrap intervals over test pairs:
 
-### **Similarity Analysis**
-1. **Select Tab**: "Similarity Analysis"
-2. **Choose Drug**: Select a drug of interest
-3. **Set Parameters**: Choose similarity type and count
-4. **Find Similar**: Discover related compounds
+| Method | Random split ROC AUC | Random split AP | Per-drug split ROC AUC | Per-drug split AP |
+|---|---|---|---|---|
+| Random forest, degree-matched negatives (app) | 0.746 (0.734–0.757) | 0.771 (0.756–0.786) | 0.890 (0.878–0.902) | 0.907 (0.893–0.919) |
+| Random forest, uniform negatives | 0.895 (0.888–0.902) | 0.901 (0.892–0.910) | 0.785 (0.766–0.802) | 0.779 (0.753–0.802) |
+| Length-3 paths | 0.716 (0.708–0.724) | 0.718 (0.708–0.728) | 0.821 (0.805–0.835) | 0.801 (0.777–0.823) |
+| Preferential attachment | 0.640 (0.627–0.653) | 0.731 (0.719–0.744) | 0.502 (0.480–0.525) | 0.504 (0.478–0.531) |
+| Chance | 0.500 (0.500–0.500) | 0.500 (0.489–0.512) | 0.500 (0.500–0.500) | 0.500 (0.481–0.519) |
 
-### **Link Prediction**
-1. **Select Tab**: "Link Prediction"
-2. **Choose Pair**: Select drug and target
-3. **Predict**: Get interaction probability
-4. **Evaluate**: View model confidence
+The app's model uses degree-matched training negatives, chosen on the per-drug split's validation drugs before any test pair was scored (validation ROC AUC 0.854 vs 0.757).
 
-### **Advanced Analytics**
-1. **Select Tab**: "Advanced Analytics"
-2. **Choose Analysis**: Discovery, Communities, or Combinations
-3. **Run Analysis**: Execute computational analysis
-4. **Explore Results**: Interactive visualizations
+Default suggestion threshold 0.95: the lowest of 0.50, 0.60, 0.70, 0.80, 0.90, 0.95 that leaves the median featured drug with at most 10 candidates. Median candidates at or above each score: 0.50: 209.5, 0.60: 108, 0.70: 48, 0.80: 29, 0.90: 22, 0.95: 7.
 
-## 📈 Performance
+Produced by `python src/datasources/drugbank_loader.py` then `python train_ml_models.py` then `python predict_links.py`; table and figure by `python scripts/make_figures.py`.
+<!-- results:end -->
 
-### **Optimizations**
-- **Lazy Loading**: Data loaded only when needed
-- **Subset Processing**: Efficient analytics on large datasets
-- **Caching**: Memoized expensive calculations
-- **Background Processing**: Non-blocking analytics
+**Two splits.** The *random edge split* hides 20% of known interactions at random (another 20% train the classifier, 60% stay as the graph the features are computed on) and samples uniform random non-interactions. The *per-drug split (controls for target popularity)* hides half the interactions of 20% of drugs with two or more targets and pairs each with a non-interaction for the same drug and a target of similar degree. A quarter of each split's training interactions is held back for validation; choices are made there and each test set is scored once.
 
-### **Scalability**
-- **Large Networks**: Handle 70K+ drugs and 5K+ targets
-- **Smart Sampling**: Efficient visualization of large graphs
-- **Memory Management**: Optimized for large datasets
-- **Parallel Processing**: Multi-threaded analytics
+**Two models.** The forests differ only in their training negatives. Each wins on the split whose test negatives match its training: uniform negatives reward preferring popular targets, which is what separates uniform random non-interactions from real ones. The app uses the degree-matched model because its job is ranking targets for one drug, where popularity alone is not evidence.
 
-## 🔒 Licensing
+**Baselines.** Length-3 paths counts drug → target′ → drug′ → target routes; preferential attachment multiplies degrees; chance ties every pair. Common neighbours is not shown: a drug and a target never share a neighbour in a bipartite graph, so it scores every pair 0.
 
-### **DrugBank Data**
-- **User Responsibility**: Users must provide their own DrugBank export
-- **No Bundled Data**: Application does not include DrugBank data
-- **License Compliance**: Respects DrugBank licensing terms
-- **Data Processing**: Only processes user-provided data
+An earlier version of this README reported ROC AUC 0.93 on a "temporal" split. That figure came from code that leaked held-out edges into training features and could not be reproduced; the split was random, not temporal.
 
-### **Application Code**
-- **Open Source**: MIT License for application code
-- **Academic Use**: Suitable for research and education
-- **Commercial Use**: Check licensing requirements
+## Limitations
 
-## 🧪 Testing
+- **No unseen drugs.** Node2Vec only embeds nodes with edges, so a drug with no known targets cannot be scored. Neither split tests brand-new compounds.
+- **Not temporal.** DrugBank has no per-interaction dates, so the evaluation cannot say how well the model anticipates future discoveries.
+- **Negatives are unmeasured.** Sampled non-interactions include real interactions nobody has tested; balanced 1:1 test sets make precision look far better than it would in screening.
+- **Scores are rankings.** Suggestion scores are calibrated with isotonic regression on validation pairs, but on balanced data; they are not the chance an interaction is real. Isotonic calibration is a step function, so many top scores tie; the app marks ties and orders them by target rarity.
+- **Intervals** cover resampling of test pairs only, not other split seeds or DrugBank releases.
+- **DrugBank entries** include ions, salts, supplements and cell therapies. The app features approved small molecules only and hides other entry types from the graph by default.
 
-### **Run Tests**
-```bash
-# Run all tests
-pytest tests/
+## Licence
 
-# Run specific test
-pytest tests/test_graph.py
-
-# Run with coverage
-pytest --cov=src tests/
-```
-
-### **Test Coverage**
-- **Data Loading**: DrugBank parser tests
-- **Graph Operations**: Network analysis tests
-- **ML Models**: Link prediction tests
-- **Web Interface**: Dash callback tests
-
-## 🐛 Troubleshooting
-
-### **Common Issues**
-
-**Data Loading Errors**
-```bash
-# Check data files exist
-ls data_raw/
-ls data/
-
-# Re-run pipeline
-python -m src.datasources.drugbank_loader
-```
-
-**ML Model Errors**
-```bash
-# Train models
-python train_ml_models.py
-
-# Check model files
-ls models/
-```
-
-**Memory Issues**
-```bash
-# Reduce max nodes in visualization
-# Use subset processing for analytics
-# Monitor system resources
-```
-
-### **Performance Tips**
-- **Use SSD**: Faster data loading
-- **Increase RAM**: Better for large datasets
-- **Limit Visualization**: Reduce max nodes for large networks
-- **Background Processing**: Run heavy analytics in background
-
-## 🤝 Contributing
-
-### **Development Setup**
-```bash
-# Clone repository
-git clone <repository-url>
-cd dti-graph
-
-# Install development dependencies
-pip install -r requirements.txt
-pip install pytest ruff
-
-# Run linting
-ruff check src/
-
-# Run tests
-pytest tests/
-```
-
-### **Code Style**
-- **Python**: PEP 8 compliance
-- **Documentation**: Docstrings for all functions
-- **Type Hints**: Type annotations where possible
-- **Testing**: Unit tests for new features
-
-## 📚 Documentation
-
-### **Additional Resources**
-- **tests/**: Test examples and validation
-
-### **Development Notes**
-
-#### **Modular Architecture**
-The application has been restructured into a modular architecture for better organization:
-- **`app.py`**: Main monolithic application (2606 lines, fully functional)
-- **`app_modular.py`**: Modular version (in development)
-- **`src/app/layout.py`**: Layout components
-- **`src/app/callbacks.py`**: Callback functions
-
-**Benefits**: Separation of concerns, maintainability, reusability, testing, readability
-
-#### **Codebase Cleanup**
-Recent cleanup efforts have:
-- **Removed 1.7GB** of duplicate and unnecessary files
-- **Reduced directory size** from 1.9GB to 195MB (90% reduction)
-- **Eliminated duplicates**: Data files, loaders, cache directories
-- **Updated .gitignore**: Comprehensive patterns for all data files
-
-**Current Status**: Clean, organized structure with no redundant files
-
-### **API Reference**
-- **Layout Components**: `src/app/layout.py`
-- **Callback Functions**: `src/app/callbacks.py`
-- **Analytics**: `src/pipeline/advanced_analytics.py`
-- **Data Loading**: `src/datasources/drugbank_loader.py`
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-**Note**: DrugBank data is not included and users must provide their own licensed data export.
-
----
-
-**Drug-Target Interaction Explorer Pro** - Advanced network analysis and machine learning for drug discovery 🚀
+Code: MIT (see `LICENSE`). DrugBank data is licensed separately by DrugBank (CC BY-NC 4.0 for the full database) and is not included. Fonts: Archivo and Courier Prime, SIL Open Font License (`assets/fonts/`).

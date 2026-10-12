@@ -3,10 +3,10 @@
     "python src/datasources/drugbank_loader.py",
     "python train_ml_models.py"
   ],
-  "git_commit": "4ed60f2",
+  "git_commit": "ab9d58a",
   "python": "3.11.14",
   "seed": 42,
-  "runtime_seconds": 453.4,
+  "runtime_seconds": 468.8,
   "run_date": "2026-10-12",
   "source": {
     "file": "drugbank_all_full_database.xml.zip",
@@ -67,35 +67,35 @@
           }
         },
         "degree_matched": {
-          "roc_auc": 0.7189,
+          "roc_auc": 0.746,
           "roc_auc_ci95": [
-            0.7066,
-            0.7306
+            0.7338,
+            0.7569
           ],
-          "average_precision": 0.732,
+          "average_precision": 0.771,
           "average_precision_ci95": [
-            0.7164,
-            0.7476
+            0.7558,
+            0.7856
           ],
-          "pr_auc_trapezoidal": 0.7341,
-          "brier_score": 0.2319,
+          "pr_auc_trapezoidal": 0.773,
+          "brier_score": 0.2073,
           "validation": {
-            "roc_auc": 0.7314,
-            "average_precision": 0.7524
+            "roc_auc": 0.7641,
+            "average_precision": 0.7995
           },
           "feature_importances": {
-            "drug_degree": 0.0421,
-            "target_degree": 0.0774,
+            "drug_degree": 0.0431,
+            "target_degree": 0.0721,
             "jaccard": 0.0,
-            "preferential_attachment": 0.0683,
+            "preferential_attachment": 0.0659,
             "resource_allocation": 0.0,
             "adamic_adar": 0.0,
-            "shortest_path": 0.1633,
+            "shortest_path": 0.1442,
             "common_neighbors": 0.0,
-            "total_neighbors": 0.0764,
-            "embedding_dot": 0.2348,
-            "drug_embedding_mean": 0.097,
-            "target_embedding_mean": 0.2408
+            "total_neighbors": 0.078,
+            "embedding_dot": 0.247,
+            "drug_embedding_mean": 0.0938,
+            "target_embedding_mean": 0.2559
           }
         }
       },
@@ -163,21 +163,21 @@
       },
       "models": {
         "uniform": {
-          "roc_auc": 0.7955,
+          "roc_auc": 0.7851,
           "roc_auc_ci95": [
-            0.7768,
-            0.8137
+            0.7664,
+            0.8023
           ],
-          "average_precision": 0.7885,
+          "average_precision": 0.7795,
           "average_precision_ci95": [
-            0.7648,
-            0.8126
+            0.7529,
+            0.8019
           ],
-          "pr_auc_trapezoidal": 0.8064,
-          "brier_score": 0.2254,
+          "pr_auc_trapezoidal": 0.7975,
+          "brier_score": 0.2355,
           "validation": {
-            "roc_auc": 0.7708,
-            "average_precision": 0.7707
+            "roc_auc": 0.7574,
+            "average_precision": 0.7527
           },
           "feature_importances": {
             "drug_degree": 0.0996,
@@ -195,35 +195,35 @@
           }
         },
         "degree_matched": {
-          "roc_auc": 0.9109,
+          "roc_auc": 0.8902,
           "roc_auc_ci95": [
-            0.8987,
-            0.9226
+            0.8777,
+            0.9018
           ],
-          "average_precision": 0.9144,
+          "average_precision": 0.9067,
           "average_precision_ci95": [
-            0.899,
-            0.9284
+            0.8932,
+            0.9191
           ],
-          "pr_auc_trapezoidal": 0.916,
-          "brier_score": 0.1145,
+          "pr_auc_trapezoidal": 0.9083,
+          "brier_score": 0.1296,
           "validation": {
-            "roc_auc": 0.8786,
-            "average_precision": 0.8797
+            "roc_auc": 0.8544,
+            "average_precision": 0.8718
           },
           "feature_importances": {
-            "drug_degree": 0.0446,
-            "target_degree": 0.0624,
+            "drug_degree": 0.0465,
+            "target_degree": 0.0643,
             "jaccard": 0.0,
-            "preferential_attachment": 0.0789,
+            "preferential_attachment": 0.0764,
             "resource_allocation": 0.0,
             "adamic_adar": 0.0,
-            "shortest_path": 0.2044,
+            "shortest_path": 0.1983,
             "common_neighbors": 0.0,
-            "total_neighbors": 0.0668,
-            "embedding_dot": 0.3762,
-            "drug_embedding_mean": 0.0789,
-            "target_embedding_mean": 0.0877
+            "total_neighbors": 0.0688,
+            "embedding_dot": 0.37,
+            "drug_embedding_mean": 0.0839,
+            "target_embedding_mean": 0.0918
           }
         }
       },
@@ -253,27 +253,27 @@
           ]
         },
         "preferential_attachment": {
-          "roc_auc": 0.4703,
+          "roc_auc": 0.5025,
           "roc_auc_ci95": [
-            0.4493,
-            0.4919
+            0.4796,
+            0.5246
           ],
-          "average_precision": 0.4829,
+          "average_precision": 0.5038,
           "average_precision_ci95": [
-            0.4576,
-            0.5085
+            0.4783,
+            0.5311
           ]
         },
         "l3_paths": {
-          "roc_auc": 0.8194,
+          "roc_auc": 0.8205,
           "roc_auc_ci95": [
-            0.804,
-            0.8345
+            0.8052,
+            0.8346
           ],
-          "average_precision": 0.8053,
+          "average_precision": 0.8015,
           "average_precision_ci95": [
-            0.7848,
-            0.8266
+            0.7771,
+            0.8231
           ]
         }
       },
@@ -289,14 +289,14 @@
     "selected_by": "higher ROC AUC on the per-drug split's validation drugs, measured before any test pair was scored",
     "per_drug_validation": {
       "uniform": {
-        "roc_auc": 0.7708,
-        "average_precision": 0.7707,
+        "roc_auc": 0.7574,
+        "average_precision": 0.7527,
         "positives": 287,
         "negatives": 287
       },
       "degree_matched": {
-        "roc_auc": 0.8786,
-        "average_precision": 0.8797,
+        "roc_auc": 0.8544,
+        "average_precision": 0.8718,
         "positives": 287,
         "negatives": 287
       }
@@ -304,24 +304,24 @@
     "calibration": "isotonic",
     "calibration_note": "isotonic regression fitted on the app model's validation pairs (1:1 known interactions to degree-matched non-interactions)",
     "validation": {
-      "roc_auc": 0.839,
-      "average_precision": 0.8493,
-      "positives": 901
+      "roc_auc": 0.884,
+      "average_precision": 0.9015,
+      "positives": 683
     },
-    "split": "All edges: 80% message graph, 20% training positives (a quarter of them held back for validation and calibration); no test set"
+    "split": "All edges, per-drug protocol: half the edges of 40% of drugs with 2+ targets are training positives (a quarter of those drugs held back for validation and calibration); every drug keeps at least one edge; no test set"
   },
   "app_suggestions": {
     "command": "python predict_links.py",
     "featured_drugs_scored": 1646,
     "median_candidates_at_or_above": {
-      "0.50": 493.0,
-      "0.60": 288.0,
-      "0.70": 270.0,
-      "0.80": 261.0,
-      "0.90": 5.0,
-      "0.95": 3.0
+      "0.50": 209.5,
+      "0.60": 108.0,
+      "0.70": 48.0,
+      "0.80": 29.0,
+      "0.90": 22.0,
+      "0.95": 7.0
     },
-    "default_threshold": 0.9,
+    "default_threshold": 0.95,
     "default_threshold_rule": "lowest of 0.50, 0.60, 0.70, 0.80, 0.90, 0.95 that leaves the median featured drug with at most 10 candidates",
     "ranking": "calibrated score, then fewer known drugs for the target (rarer first)"
   }
