@@ -19,8 +19,9 @@ drug_holdout
     each test drug's edges (at least one) are hidden; another 20% of drugs
     supply training positives the same way. Each positive (d, t) gets a
     negative (d, t') for the same drug, with t' drawn from targets in the same
-    degree bin as t, so the model cannot win by preferring popular targets or
-    by recognising which drugs appear in the positive set.
+    message-graph degree bin as t, so the model cannot win by preferring
+    popular targets, by spotting targets that lost an edge to the hold-out,
+    or by recognising which drugs appear in the positive set.
 
 In both splits, train and test positives are absent from the message graph,
 so the model is trained on the same feature distribution it is tested on.
@@ -224,7 +225,15 @@ class DTILinkPredictor:
         return sorted(pairs)
 
     def _degree_bin(self, t):
-        return int(math.log2(self.G.degree(t)))
+        """Bin of the target's degree in the message graph, the degree the model sees.
+
+        Binning on full-graph degree leaked: a held-out positive's target has
+        lost that edge in the message graph (a one-drug target becomes
+        isolated), while its matched negative had not, so "isolated target"
+        signalled "real interaction". Isolated targets get their own bin (-1).
+        """
+        k = self.train_graph.degree(t)
+        return -1 if k == 0 else int(math.log2(k))
 
     def _degree_matched_negatives(self, positives, exclude):
         bins = {}

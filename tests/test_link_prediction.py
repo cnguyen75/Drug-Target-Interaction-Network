@@ -120,3 +120,16 @@ def test_degree_matched_training_negatives_and_calibration():
     p.calibrate("platt")
     s2 = p.score_pairs(p.val_edges[:5])
     assert ((0 <= s2) & (s2 <= 1)).all()
+
+
+def test_degree_matched_negatives_match_message_graph_degree():
+    """Negatives must not differ from positives in the degree the model sees."""
+    p = _predictor("drug_holdout")
+    negs = p.sample_negatives(p.test_edges)
+    for (_, t), (_, nt) in zip(p.test_edges, negs):
+        assert p._degree_bin(t) == p._degree_bin(nt) or abs(p._degree_bin(t) - p._degree_bin(nt)) == 1
+    same = sum(p._degree_bin(t) == p._degree_bin(nt) for (_, t), (_, nt) in zip(p.test_edges, negs))
+    assert same / len(negs) > 0.9
+    isolated_pos = sum(p.train_graph.degree(t) == 0 for _, t in p.test_edges)
+    isolated_neg = sum(p.train_graph.degree(t) == 0 for _, t in negs)
+    assert abs(isolated_pos - isolated_neg) <= max(2, 0.1 * isolated_pos)
