@@ -6,27 +6,28 @@ build-backend = "setuptools.build_meta"
 name = "dti-graph"
 version = "0.1.0"
 description = "Drug-Target Interaction Network Explorer"
-authors = [{name = "DTI Team"}]
+authors = [{name = "Colin Nguyen"}]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-    "pandas",
-    "numpy", 
-    "pyarrow",
-    "lxml",
-    "networkx",
-    "scikit-learn",
-    "nodevectors",
-    "umap-learn",
-    "dash",
-    "dash-cytoscape",
-    "faiss-cpu",
+    "dash==4.4.1",
+    "plotly==7.1.0",
+    "pandas==3.0.6",
+    "numpy==2.4.6",
+    "pyarrow==26.0.0",
+    "lxml==6.1.3",
+    "networkx==3.6.1",
+    "scikit-learn==1.9.1",
+    "node2vec==0.4.3",
+    "setuptools==75.8.0",
+    "gensim==4.4.0",
+    "python-louvain==0.16",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
-    "ruff",
+    "pytest==9.1.1",
+    "ruff==0.17.0",
 ]
 
 [tool.ruff]
