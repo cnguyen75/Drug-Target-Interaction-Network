@@ -16,6 +16,7 @@ from plotly.subplots import make_subplots
 
 # Add src to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
+from config import DRUGS_FP, DTI_FP, TARGETS_FP
 from pipeline.link_prediction import DTILinkPredictor
 from pipeline.drug_repurposing import DrugRepurposer
 from pipeline.advanced_analytics import DrugRepurposingAnalytics, NetworkAnalytics, PredictiveInsights
@@ -28,9 +29,9 @@ app.config.suppress_callback_exceptions = True
 print("Loading data and models...")
 try:
     # Load full DrugBank database
-    full_drugs_fp = "data_raw/drugs_full.parquet"
-    full_targets_fp = "data_raw/targets_full.parquet"
-    full_dti_fp = "data_raw/dti_full.parquet"
+    full_drugs_fp = DRUGS_FP
+    full_targets_fp = TARGETS_FP
+    full_dti_fp = DTI_FP
     
     if not os.path.exists(full_drugs_fp):
         print("Full DrugBank database not found!")
@@ -72,6 +73,8 @@ try:
         print("Loading embeddings for advanced analytics...")
         try:
             embeddings_df = pd.read_parquet(embeddings_path)
+            if "node_id" in embeddings_df.columns:
+                embeddings_df = embeddings_df.set_index("node_id")
             print(f"Loaded embeddings: {len(embeddings_df):,} nodes")
         except Exception as e:
             print(f"Error loading embeddings: {e}")
@@ -1412,18 +1415,20 @@ def run_link_prediction(drug_id, target_id):
             ])
         ])
         
-        # Create metrics
+        # Create metrics (read from the trained model's held-out evaluation)
+        perf = getattr(link_predictor, "evaluation_results", {}).get("model_performance", {})
         metrics = html.Div([
-            html.H5("Model Performance", style={
+            html.H5("Model Performance (held-out test pairs)", style={
                 "color": "#2c3e50",
                 "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
                 "fontWeight": "500"
             }),
-            html.P("ROC AUC: 1.0000 (trained model)"),
-            html.P("PR AUC: 1.0000 (trained model)"),
-            html.P("Training Data: 46,272 examples (23,136 positive, 23,136 negative)"),
-            html.P("Model: Random Forest Classifier"),
-            html.P("Features: 12 engineered features")
+            html.P(f"ROC AUC: {perf['auc']:.4f}" if perf else "ROC AUC: not available"),
+            html.P(f"Average precision: {perf['ap_score']:.4f}" if perf else "Average precision: not available"),
+            html.P(f"Training pairs: {perf['train_positives']:,} positive, {perf['train_negatives']:,} negative"
+                   if perf else "Training pairs: not available"),
+            html.P(f"Split: {perf['split']}" if perf else ""),
+            html.P("Model: Random Forest Classifier, 12 graph and embedding features")
         ])
         
         return results, metrics, "Link prediction completed", {"width": "100%", "height": "20px", "backgroundColor": "#27ae60", "borderRadius": "10px", "transition": "width 0.3s ease"}, "Analysis complete"
@@ -1778,6 +1783,12 @@ def run_advanced_analytics(n_clicks, analytics_type, drug_id):
         print(f"Analytics error: {error_details}")
         return f"Error running analytics: {str(e)}", "", f"Error: {str(e)}", "", {"display": "none"}
 
+BASELINE_LABELS = {
+    "preferential_attachment": "Preferential attachment",
+    "l3_paths": "Length-3 paths",
+    "embedding_dot": "Embedding dot product",
+}
+
 # ML Evaluation Callbacks
 @app.callback(
     [Output("eval_summary", "children"),
@@ -1810,16 +1821,19 @@ def load_evaluation_data(_):
             html.P(f"PR AUC: {model_perf['pr_auc']:.4f}", style={"color": "#27ae60", "fontWeight": "500"}),
             html.P(f"Average Precision: {model_perf['ap_score']:.4f}", style={"color": "#27ae60", "fontWeight": "500"}),
             html.P(f"Test Set: {model_perf['test_positives']} positive, {model_perf['test_negatives']} negative edges"),
-            html.P(f"Training Set: {model_perf['train_edges']} edges"),
-            html.P("Validation: Temporal split, no data leakage", style={"color": "#7f8c8d", "fontSize": "12px"})
+            html.P(f"Training Set: {model_perf['train_positives']} positive, {model_perf['train_negatives']} negative pairs"),
+            html.P(f"Validation: {model_perf['split']}; features use only the message graph",
+                   style={"color": "#7f8c8d", "fontSize": "12px"})
         ])
         
         # Model comparison
         comparison = html.Div([
             html.P("Random Forest vs Baselines:", style={"fontWeight": "500", "marginBottom": "10px"}),
-            html.P(f"vs Common Neighbors: +{model_perf['auc'] - baseline_results['common_neighbors']['roc_auc']:.3f} AUC"),
-            html.P(f"vs Jaccard: +{model_perf['auc'] - baseline_results['jaccard']['roc_auc']:.3f} AUC"),
-            html.P(f"vs Adamic-Adar: +{model_perf['auc'] - baseline_results['adamic_adar']['roc_auc']:.3f} AUC")
+            *[html.P(f"vs {BASELINE_LABELS[name]}: {model_perf['auc'] - b['roc_auc']:+.3f} AUC")
+              for name, b in baseline_results.items() if b.get('roc_auc') is not None],
+            html.P("Common neighbours, Jaccard and Adamic-Adar are always 0 for a drug and a "
+                   "target in a bipartite graph, so they are not compared.",
+                   style={"color": "#7f8c8d", "fontSize": "12px"})
         ])
         
         # Calibration info
@@ -1845,21 +1859,11 @@ def load_evaluation_data(_):
                         html.Td(f"{model_perf['auc']:.4f}", style={"padding": "8px", "textAlign": "center", "fontWeight": "500"}),
                         html.Td(f"{model_perf['ap_score']:.4f}", style={"padding": "8px", "textAlign": "center", "fontWeight": "500"})
                     ]),
-                    html.Tr([
-                        html.Td("Common Neighbors", style={"padding": "8px"}),
-                        html.Td(f"{baseline_results['common_neighbors']['roc_auc']:.4f}", style={"padding": "8px", "textAlign": "center"}),
-                        html.Td(f"{baseline_results['common_neighbors']['ap_score']:.4f}", style={"padding": "8px", "textAlign": "center"})
-                    ]),
-                    html.Tr([
-                        html.Td("Jaccard", style={"padding": "8px"}),
-                        html.Td(f"{baseline_results['jaccard']['roc_auc']:.4f}", style={"padding": "8px", "textAlign": "center"}),
-                        html.Td(f"{baseline_results['jaccard']['ap_score']:.4f}", style={"padding": "8px", "textAlign": "center"})
-                    ]),
-                    html.Tr([
-                        html.Td("Adamic-Adar", style={"padding": "8px"}),
-                        html.Td(f"{baseline_results['adamic_adar']['roc_auc']:.4f}", style={"padding": "8px", "textAlign": "center"}),
-                        html.Td(f"{baseline_results['adamic_adar']['ap_score']:.4f}", style={"padding": "8px", "textAlign": "center"})
-                    ])
+                    *[html.Tr([
+                        html.Td(BASELINE_LABELS[name], style={"padding": "8px"}),
+                        html.Td(f"{b['roc_auc']:.4f}", style={"padding": "8px", "textAlign": "center"}),
+                        html.Td(f"{b['ap_score']:.4f}", style={"padding": "8px", "textAlign": "center"})
+                    ]) for name, b in baseline_results.items() if b.get('roc_auc') is not None]
                 ])
             ], style={"width": "100%", "borderCollapse": "collapse", "border": "1px solid #dee2e6"})
         ])
@@ -2602,4 +2606,7 @@ if __name__ == "__main__":
     if targets_df is not None:
         print(f"  - Targets: {len(targets_df):,}")
     print("Starting web server...")
-    app.run(debug=True, host='0.0.0.0', port=8050)
+    # Local only. Dash debug mode exposes an interactive debugger, so it is off
+    # unless DASH_DEBUG=1 is set.
+    app.run(debug=os.environ.get("DASH_DEBUG") == "1", host="127.0.0.1",
+            port=int(os.environ.get("PORT", 8050)))
