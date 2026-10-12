@@ -1,0 +1,58 @@
+"""Tests for explore-view helpers (synthetic data only)."""
+
+import os
+import sys
+
+import pandas as pd
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.append(os.path.dirname(__file__))
+from pipeline.build_graph import build_bipartite_graph
+from pipeline.explore import evidence, featured_mask, has_carbon, neighbourhood, radial_layout
+from synthetic import synthetic_tables
+
+
+def test_has_carbon():
+    assert has_carbon("CCO") and has_carbon("c1ccccc1") and has_carbon("N[C@@H](C)C(O)=O")
+    assert not has_carbon("[Cu]") and not has_carbon("[Cl-].[Cl-].[Zn++]") and not has_carbon("[Ca++]")
+
+
+def test_featured_mask_excludes_ions_salts_nutraceuticals():
+    df = pd.DataFrame([
+        {"name": "organic", "approved": True, "type": "small molecule", "groups": "approved", "smiles": "CCO"},
+        {"name": "ion", "approved": True, "type": "small molecule", "groups": "approved", "smiles": "[Cu]"},
+        {"name": "salt", "approved": True, "type": "small molecule", "groups": "approved", "smiles": "[Zn++].CC([O-])=O"},
+        {"name": "nutra", "approved": True, "type": "small molecule", "groups": "approved,nutraceutical", "smiles": "NCC(O)=O"},
+        {"name": "biotech", "approved": True, "type": "biotech", "groups": "approved", "smiles": None},
+        {"name": "unapproved", "approved": False, "type": "small molecule", "groups": "experimental", "smiles": "CCO"},
+    ])
+    assert list(df[featured_mask(df)]["name"]) == ["organic"]
+
+
+def _graph():
+    return build_bipartite_graph(*synthetic_tables())
+
+
+def test_neighbourhood_and_layout():
+    G = _graph()
+    drug = max((n for n, d in G.nodes(data=True) if d["node_type"] == "drug"), key=G.degree)
+    unlinked = [t for t, d in G.nodes(data=True) if d["node_type"] == "target" and not G.has_edge(drug, t)]
+    scores = {t: i / len(unlinked) for i, t in enumerate(unlinked)}
+    nb = neighbourhood(G, drug, scores, min_score=0.5)
+    assert nb["known_total"] == G.degree(drug)
+    assert all(s >= 0.5 for _, s in nb["predicted"]) and len(nb["predicted"]) <= 5
+    assert all(not G.has_edge(drug, p) for p, _ in nb["predicted"])
+    pos = radial_layout(nb)
+    assert set(pos) >= {drug, *nb["known"], *nb["related"], *(p for p, _ in nb["predicted"])}
+
+
+def test_evidence_mentions_l3_support():
+    G = _graph()
+    drug = max((n for n, d in G.nodes(data=True) if d["node_type"] == "drug"), key=G.degree)
+    for t in G.nodes:
+        if G.nodes[t]["node_type"] == "target" and not G.has_edge(drug, t):
+            text = evidence(G, drug, t)
+            assert text.endswith(".")
+            if text.startswith("Bound by"):
+                return
+    raise AssertionError("expected at least one length-3 path in the synthetic graph")
