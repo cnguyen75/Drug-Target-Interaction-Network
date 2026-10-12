@@ -133,3 +133,11 @@ def test_degree_matched_negatives_match_message_graph_degree():
     isolated_pos = sum(p.train_graph.degree(t) == 0 for _, t in p.test_edges)
     isolated_neg = sum(p.train_graph.degree(t) == 0 for _, t in negs)
     assert abs(isolated_pos - isolated_neg) <= max(2, 0.1 * isolated_pos)
+
+
+def test_final_split_keeps_every_drug_visible():
+    p = _predictor("final")
+    for d in p.drug_nodes:
+        if p.G.degree(d) > 0:
+            assert p.train_graph.degree(d) >= 1
+    assert p.train_edges and not p.test_edges

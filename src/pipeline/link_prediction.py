@@ -48,8 +48,9 @@ SPLIT_DESCRIPTIONS = {
     "random": "Random edge split 60/20/20 (message/train/test), uniform random negatives",
     "drug_holdout": ("Per-drug holdout: 20% of drugs with 2+ targets are test drugs with half "
                      "their edges hidden; negatives use the same drug and a degree-matched target"),
-    "final": ("All edges: 80% message graph, 20% training positives (a quarter of them "
-              "held back for validation and calibration); no test set"),
+    "final": ("All edges, per-drug protocol: half the edges of 40% of drugs with 2+ targets "
+              "are training positives (a quarter of those drugs held back for validation and "
+              "calibration); every drug keeps at least one edge; no test set"),
 }
 
 
@@ -137,8 +138,11 @@ class DTILinkPredictor:
             n_train = int(len(edges) * 0.2)
             test, train = edges[:n_test], edges[n_test:n_test + n_train]
         elif kind == "final":
-            edges = [edges[i] for i in self.rng.permutation(len(edges))]
-            test, train = [], edges[:int(len(edges) * 0.2)]
+            # Same protocol as the per-drug split, without a test set: hide half
+            # the edges of 40% of drugs with 2+ targets, never a drug's last
+            # edge, so every drug with a known target stays visible to the model.
+            train, _ = self._drug_holdout(edges, drug_frac=0.4, test=False)
+            test = []
         elif kind == "drug_holdout":
             train, test = self._drug_holdout(edges)
         else:
@@ -166,7 +170,7 @@ class DTILinkPredictor:
         the message graph and test set are unchanged and no random draws are
         consumed.
         """
-        if kind == "drug_holdout":
+        if kind in ("drug_holdout", "final"):
             n_val = int(len(self.train_drugs) * frac)
             self.val_drugs = set(self.train_drugs[len(self.train_drugs) - n_val:])
             val = [e for e in train if e[0] in self.val_drugs]
@@ -175,14 +179,17 @@ class DTILinkPredictor:
         n_val = int(len(train) * frac)
         return train[:len(train) - n_val], train[len(train) - n_val:]
 
-    def _drug_holdout(self, edges, drug_frac=0.2, edge_frac=0.5):
+    def _drug_holdout(self, edges, drug_frac=0.2, edge_frac=0.5, test=True):
         by_drug = {}
         for d, t in edges:
             by_drug.setdefault(d, []).append((d, t))
         eligible = sorted(d for d, es in by_drug.items() if len(es) >= 2)
         order = [eligible[i] for i in self.rng.permutation(len(eligible))]
         n = int(len(order) * drug_frac)
-        self.test_drugs, self.train_drugs = order[:n], order[n:2 * n]
+        if test:
+            self.test_drugs, self.train_drugs = order[:n], order[n:2 * n]
+        else:
+            self.test_drugs, self.train_drugs = [], order[:n]
 
         def hide(drugs):
             hidden = []

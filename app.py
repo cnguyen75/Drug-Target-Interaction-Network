@@ -538,9 +538,11 @@ def app_model_paragraph():
             f"{RESULTS['negative_schemes'][other]}; that comparison was made before any test pair "
             "was scored. Uniform negatives teach the model that popular targets are likely partners, "
             "which pushed the same few receptors to the top of every drug's list. The app's copy is "
-            "retrained on all known edges (80% as the message graph, 20% as training positives, a "
-            "quarter of those held back) and its scores are calibrated with isotonic regression on "
-            f"that held-back set (validation ROC AUC {m['validation']['roc_auc']:.3f}).")
+            "retrained on all known edges with the per-drug protocol: half the edges of 40% of drugs "
+            "with two or more targets become training positives (a quarter of those drugs held back), "
+            "and no drug loses its last edge, so every drug with a known target stays visible to the "
+            "model when its suggestions are scored. Scores are calibrated with isotonic regression on "
+            f"the held-back drugs (validation ROC AUC {m['validation']['roc_auc']:.3f}).")
 
 
 def suggestions_paragraph():
