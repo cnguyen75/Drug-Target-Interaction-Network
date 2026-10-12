@@ -7,123 +7,32 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.decomposition import PCA
 import community  # python-louvain
 
+from pipeline.drug_repurposing import DrugRepurposer
+
 
 class DrugRepurposingAnalytics:
-    """Advanced drug repurposing analytics with lazy loading."""
-    
+    """Embedding-based similarity and repurposing, backed by DrugRepurposer.
+
+    With no embeddings, both methods return empty lists so the UI can show an
+    empty state; nothing is computed from placeholder vectors.
+    """
+
     def __init__(self, drugs_df, targets_df, dti_df, embeddings_df=None):
-        self.drugs_df = drugs_df
-        self.targets_df = targets_df
-        self.dti_df = dti_df
-        self.embeddings_df = embeddings_df
-        self._embeddings_prepared = False
-        
-    def _prepare_embeddings(self):
-        """Prepare embeddings for analysis (lazy loading)."""
-        if self._embeddings_prepared:
-            return
-            
-        if self.embeddings_df is None:
-            # Create dummy embeddings based on target profiles
-            print("Warning: No embeddings available. Creating dummy embeddings for analysis.")
-            all_nodes = list(set(self.drugs_df['drug_id'].tolist() + self.targets_df['target_id'].tolist()))
-            dummy_embeddings = np.random.rand(len(all_nodes), 128)
-            self.embeddings_df = pd.DataFrame(dummy_embeddings, index=all_nodes)
-            
-        # Separate drug and target embeddings
-        drug_nodes = set(self.drugs_df['drug_id'])
-        target_nodes = set(self.targets_df['target_id'])
-        
-        self.drug_embeddings = self.embeddings_df[self.embeddings_df.index.isin(drug_nodes)]
-        self.target_embeddings = self.embeddings_df[self.embeddings_df.index.isin(target_nodes)]
-        
-        self._embeddings_prepared = True
-        
+        self.repurposer = DrugRepurposer()
+        self.repurposer.load_data(drugs_df, targets_df, dti_df, embeddings_df)
+        self.has_embeddings = embeddings_df is not None
+
     def find_similar_drugs(self, drug_id, top_k=10, similarity_threshold=0.7):
-        """Find similar drugs based on embeddings (optimized for performance)."""
-        self._prepare_embeddings()
-        
-        if drug_id not in self.drugs_df['drug_id'].values:
+        """Most similar drugs by cosine similarity of their embeddings."""
+        if not self.has_embeddings:
             return []
-            
-        if self.drug_embeddings is not None and drug_id in self.drug_embeddings.index:
-            # Use subset of top drugs by degree for faster computation
-            drug_connections = self.dti_df['drug_id'].value_counts()
-            subset_drugs = drug_connections.head(1000).index  # Top 1000 drugs
-            
-            subset_embeddings = self.drug_embeddings[self.drug_embeddings.index.isin(subset_drugs)]
-            
-            if drug_id in subset_embeddings.index:
-                drug_embedding = subset_embeddings.loc[drug_id].values.reshape(1, -1)
-                
-                # Calculate similarities with subset
-                similarities = cosine_similarity(drug_embedding, subset_embeddings.values)[0]
-                
-                # Create similarity pairs
-                similarity_pairs = list(zip(subset_embeddings.index, similarities))
-                
-                # Filter and sort
-                similar_drugs = []
-                for similar_drug_id, similarity in similarity_pairs:
-                    if similar_drug_id != drug_id and similarity >= similarity_threshold:
-                        similar_drug_info = self.drugs_df[self.drugs_df['drug_id'] == similar_drug_id].iloc[0]
-                        similar_drugs.append({
-                            'drug_id': similar_drug_id,
-                            'name': similar_drug_info['name'],
-                            'similarity': similarity,
-                            'type': similar_drug_info.get('type', 'Unknown'),
-                            'approved': similar_drug_info.get('approved', False)
-                        })
-                        
-                # Sort by similarity and return top_k
-                similar_drugs.sort(key=lambda x: x['similarity'], reverse=True)
-                return similar_drugs[:top_k]
-                
-        return []
-        
+        return self.repurposer.find_similar_drugs(drug_id, top_k, similarity_threshold)
+
     def repurposing_opportunities(self, drug_id, top_k=5):
-        """Find repurposing opportunities for a drug."""
-        self._prepare_embeddings()
-        
-        if drug_id not in self.drugs_df['drug_id'].values:
+        """Targets most similar to the drug's current targets."""
+        if not self.has_embeddings:
             return []
-            
-        current_targets = set(self.dti_df[self.dti_df['drug_id'] == drug_id]['target_id'])
-        
-        opportunities = []
-        
-        # Find targets that the drug doesn't currently interact with
-        all_targets = set(self.targets_df['target_id'])
-        potential_targets = all_targets - current_targets
-        
-        # Score potential targets based on similarity to current targets
-        for target_id in list(potential_targets)[:50]:  # Limit for performance
-            target_info = self.targets_df[self.targets_df['target_id'] == target_id].iloc[0]
-            
-            # Calculate similarity to current targets
-            if self.target_embeddings is not None and target_id in self.target_embeddings.index:
-                target_embedding = self.target_embeddings.loc[target_id].values.reshape(1, -1)
-                
-                # Find similarity to current targets
-                similarities = []
-                for current_target in current_targets:
-                    if current_target in self.target_embeddings.index:
-                        current_embedding = self.target_embeddings.loc[current_target].values.reshape(1, -1)
-                        similarity = cosine_similarity(target_embedding, current_embedding)[0, 0]
-                        similarities.append(similarity)
-                        
-                if similarities:
-                    avg_similarity = np.mean(similarities)
-                    opportunities.append({
-                        'target_id': target_id,
-                        'name': target_info['name'],
-                        'similarity': avg_similarity,
-                        'organism': target_info.get('organism', 'Unknown')
-                    })
-                    
-        # Sort by similarity and return top_k
-        opportunities.sort(key=lambda x: x['similarity'], reverse=True)
-        return opportunities[:top_k]
+        return self.repurposer.repurposing_opportunities(drug_id, top_k)
 
 
 class NetworkAnalytics:

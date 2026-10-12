@@ -112,40 +112,30 @@ class DrugRepurposer:
         current_targets = set(self.dti_df[self.dti_df['drug_id'] == drug_id]['target_id'])
         
         opportunities = []
-        
-        # Find targets that the drug doesn't currently interact with
-        all_targets = set(self.targets_df['target_id'])
-        potential_targets = all_targets - current_targets
-        
-        # Score potential targets based on similarity to current targets
-        for target_id in list(potential_targets)[:100]:  # Limit for performance
-            target_info = self.targets_df[self.targets_df['target_id'] == target_id].iloc[0]
-            
-            # Calculate similarity to current targets
-            if self.target_embeddings is not None and target_id in self.target_embeddings.index:
-                target_embedding = self.target_embeddings.loc[target_id].values.reshape(1, -1)
-                
-                # Find similarity to current targets
-                similarities = []
-                for current_target in current_targets:
-                    if current_target in self.target_embeddings.index:
-                        current_embedding = self.target_embeddings.loc[current_target].values.reshape(1, -1)
-                        similarity = cosine_similarity(target_embedding, current_embedding)[0, 0]
-                        similarities.append(similarity)
-                        
-                if similarities:
-                    avg_similarity = np.mean(similarities)
-                    opportunities.append({
-                        'target_id': target_id,
-                        'name': target_info['name'],
-                        'similarity': avg_similarity,
-                        'organism': target_info.get('organism', 'Unknown')
-                    })
-                    
-        # Sort by similarity and return top_k
-        opportunities.sort(key=lambda x: x['similarity'], reverse=True)
-        return opportunities[:top_k]
-        
+        if self.target_embeddings is None:
+            return opportunities
+
+        # Score every target the drug doesn't already hit by its mean cosine
+        # similarity to the drug's current targets.
+        current = [t for t in current_targets if t in self.target_embeddings.index]
+        if not current:
+            return opportunities
+        candidates = self.target_embeddings[~self.target_embeddings.index.isin(current_targets)]
+        scores = cosine_similarity(candidates.values,
+                                   self.target_embeddings.loc[current].values).mean(axis=1)
+        names = self.targets_df.set_index('target_id')
+
+        for idx in np.argsort(-scores)[:top_k]:
+            target_id = candidates.index[idx]
+            target_info = names.loc[target_id]
+            opportunities.append({
+                'target_id': target_id,
+                'name': target_info['name'],
+                'similarity': float(scores[idx]),
+                'organism': target_info.get('organism', 'Unknown')
+            })
+        return opportunities
+
     def save_model(self, filepath):
         """Save the repurposing model."""
         model_data = {
