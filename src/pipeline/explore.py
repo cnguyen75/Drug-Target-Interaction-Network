@@ -146,7 +146,7 @@ def radial_layout(nb):
     for i, k in enumerate(known):
         a = 2 * math.pi * i / max(len(known), 1) + math.pi / 2
         angle[k] = a
-        pos[k] = (math.cos(a), math.sin(a))
+        pos[k] = (1.3 * math.cos(a), 1.3 * math.sin(a))
 
     def spread(n, lo, hi):
         if n == 1:
@@ -155,7 +155,7 @@ def radial_layout(nb):
 
     predicted = [p for p, _ in nb["predicted"]]
     for p, a in zip(predicted, spread(len(predicted), math.radians(55), math.radians(-55))):
-        pos[p] = (2.0 * math.cos(a), 2.0 * math.sin(a))
+        pos[p] = (2.25 * math.cos(a), 2.25 * math.sin(a))
 
     def mean_angle(o):
         shared = nb["related_shared"][o]
@@ -165,7 +165,7 @@ def radial_layout(nb):
 
     related = sorted(nb["related"], key=lambda o: (mean_angle(o), o))
     for o, a in zip(related, spread(len(related), math.radians(105), math.radians(255))):
-        pos[o] = (2.2 * math.cos(a), 2.2 * math.sin(a))
+        pos[o] = (2.4 * math.cos(a), 2.4 * math.sin(a))
     return pos
 
 

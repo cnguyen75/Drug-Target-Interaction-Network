@@ -297,8 +297,8 @@ def network_figure(nb, show):
     fig.update_layout(
         showlegend=False, paper_bgcolor=CARD, plot_bgcolor=CARD, dragmode="pan",
         margin=dict(l=70, r=80, t=24, b=24), font=dict(family="Archivo", color=INK),
-        xaxis=dict(visible=False, range=[-2.6, 2.6]),
-        yaxis=dict(visible=False, range=[-2.5, 2.5]),
+        xaxis=dict(visible=False, range=[-2.75, 2.75]),
+        yaxis=dict(visible=False, range=[-2.65, 2.65]),
         hoverlabel=dict(bgcolor=CARD, bordercolor=INK, font=dict(family="Archivo", color=INK)),
     )
     return fig
