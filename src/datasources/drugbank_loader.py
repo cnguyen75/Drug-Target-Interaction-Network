@@ -12,6 +12,7 @@ Writes data_raw/drugs_full.parquet, targets_full.parquet and dti_full.parquet,
 which app.py and scripts/train_ml_models.py read.
 """
 
+import json
 import os
 import sys
 import zipfile
@@ -147,8 +148,15 @@ def parse_drugbank_xml(xml_path: Path) -> Tuple[pd.DataFrame, pd.DataFrame, pd.D
     drugs_data, targets_data, dti_data = [], [], []
     drug_tag = f"{{{NS_URI}}}drug"
 
+    meta = {}
     with open_drugbank(xml_path) as stream:
-        for _, elem in etree.iterparse(stream, events=("end",), tag=drug_tag, huge_tree=True):
+        for event, elem in etree.iterparse(stream, events=("start", "end"), huge_tree=True):
+            if event == "start":
+                if not meta and elem.tag == f"{{{NS_URI}}}drugbank":
+                    meta = {"version": elem.get("version"), "exported_on": elem.get("exported-on")}
+                continue
+            if elem.tag != drug_tag:
+                continue
             parent = elem.getparent()
             # Top-level entries are direct children of the root <drugbank> element.
             if parent is None or parent.getparent() is not None:
@@ -165,6 +173,7 @@ def parse_drugbank_xml(xml_path: Path) -> Tuple[pd.DataFrame, pd.DataFrame, pd.D
         subset=["drug_id", "target_id"])
 
     print(f"Parsed {len(drugs_df)} drugs, {len(targets_df)} targets, {len(dti_df)} interactions")
+    parse_drugbank_xml.meta = meta
 
     return drugs_df, targets_df, dti_df
 
@@ -182,6 +191,8 @@ def main():
     drugs_df.to_parquet(DRUGS_FP, index=False)
     targets_df.to_parquet(TARGETS_FP, index=False)
     dti_df.to_parquet(DTI_FP, index=False)
+    (DRUGS_FP.parent / "drugbank_meta.json").write_text(
+        json.dumps({"file": RAW_XML.name, **parse_drugbank_xml.meta}, indent=2) + "\n")
 
     print("Saved data to:")
     print(f"  Drugs: {DRUGS_FP}")

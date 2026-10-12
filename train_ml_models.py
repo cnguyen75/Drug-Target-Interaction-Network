@@ -24,6 +24,7 @@ import platform
 import subprocess
 import sys
 import time
+from datetime import date
 from pathlib import Path
 
 if os.environ.get("PYTHONHASHSEED") != "0":
@@ -43,6 +44,12 @@ from pipeline.link_prediction import DTILinkPredictor
 SEED = 42
 COMMAND = "python train_ml_models.py"
 DATA_COMMAND = "python src/datasources/drugbank_loader.py"
+
+
+def source_meta():
+    """DrugBank file name, version and export date recorded by the loader."""
+    fp = DRUGS_FP.parent / "drugbank_meta.json"
+    return json.loads(fp.read_text()) if fp.exists() else {"file": RAW_XML.name}
 
 
 def r4(x):
@@ -134,8 +141,9 @@ def main():
         "python": platform.python_version(),
         "seed": SEED,
         "runtime_seconds": round(time.time() - t0, 1),
+        "run_date": date.today().isoformat(),
         "source": {
-            "file": RAW_XML.name,
+            **source_meta(),
             "note": "DrugBank full database export; licensed data, not in the repo",
         },
         "dataset": {
