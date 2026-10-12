@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Regenerate figures from results/results.json in the site style.
 
-    python scripts/make_figures.py            # writes figures/evaluation.svg
+    python scripts/make_figures.py            # writes figures/evaluation.svg and the
+                                              # results block in README.md
 
 Hand-written SVG: paper card #F6F2E8, ink #231F1B, secondary #3D372F, rule
 #B3A992; series blue #1F6FB5 (the app's model), purple #7A4E9E (the other
@@ -88,12 +89,79 @@ def evaluation_svg(results):
     return "\n".join(p) + "\n"
 
 
+START, END = "<!-- results:start -->", "<!-- results:end -->"
+
+
+def readme_block(results):
+    """Markdown results table, every number read from results.json."""
+    app = results["app_model"]["train_negatives"]
+    names = {"degree_matched": "Random forest, degree-matched negatives",
+             "uniform": "Random forest, uniform negatives"}
+
+    def cell(b):
+        lo, hi = b["roc_auc_ci95"]
+        return f"{b['roc_auc']:.3f} ({lo:.3f}–{hi:.3f})"
+
+    def ap(b):
+        lo, hi = b["average_precision_ci95"]
+        return f"{b['average_precision']:.3f} ({lo:.3f}–{hi:.3f})"
+
+    r, d = results["splits"]["random"], results["splits"]["drug_holdout"]
+    rows = [(names[app] + " (app)", r["models"][app], d["models"][app])]
+    other = "uniform" if app == "degree_matched" else "degree_matched"
+    rows.append((names[other], r["models"][other], d["models"][other]))
+    for key, name in (("l3_paths", "Length-3 paths"), ("preferential_attachment",
+                                                       "Preferential attachment"), ("chance", "Chance")):
+        rows.append((name, r["baselines"][key], d["baselines"][key]))
+    ds, val = results["dataset"], results["app_model"]["per_drug_validation"]
+    sug = results.get("app_suggestions", {})
+    lines = [
+        START,
+        f"DrugBank {results['source']['version']} (exported {results['source']['exported_on']}): "
+        f"{ds['drugs_with_human_target']:,} drugs with a human target, {ds['human_targets']:,} human "
+        f"targets, {ds['interactions']:,} interactions. Run {results.get('run_date', '')}, commit "
+        f"`{results['git_commit']}`, seed {results['seed']}.",
+        "",
+        "ROC AUC and average precision on held-out pairs (one sampled non-interaction per known "
+        "interaction), with 95% bootstrap intervals over test pairs:",
+        "",
+        "| Method | Random split ROC AUC | Random split AP | Per-drug split ROC AUC | Per-drug split AP |",
+        "|---|---|---|---|---|",
+        *[f"| {n} | {cell(a)} | {ap(a)} | {cell(b)} | {ap(b)} |" for n, a, b in rows],
+        "",
+        f"The app's model uses {app.replace('_', '-')} training negatives, chosen on the per-drug "
+        f"split's validation drugs before any test pair was scored (validation ROC AUC "
+        f"{val[app]['roc_auc']:.3f} vs {val[other]['roc_auc']:.3f}).",
+    ]
+    if sug:
+        lines += ["", f"Default suggestion threshold {sug['default_threshold']:.2f}: the "
+                      f"{sug['default_threshold_rule']}. Median candidates at or above each score: "
+                      + ", ".join(f"{k}: {v:g}" for k, v in sug["median_candidates_at_or_above"].items())
+                      + "."]
+    lines += ["", "Produced by `" + "` then `".join(results["commands"] + [sug.get("command", "")]).rstrip(
+        "` then `") + "`; table and figure by `python scripts/make_figures.py`.", END]
+    return "\n".join(lines)
+
+
+def update_readme(results):
+    fp = ROOT / "README.md"
+    text = fp.read_text()
+    if START not in text:
+        return False
+    head, rest = text.split(START, 1)
+    _, tail = rest.split(END, 1)
+    fp.write_text(head + readme_block(results) + tail)
+    return True
+
+
 def main():
     results = json.loads((ROOT / "results" / "results.json").read_text())
     out = ROOT / "figures"
     out.mkdir(exist_ok=True)
     (out / "evaluation.svg").write_text(evaluation_svg(results))
     print(f"wrote {out / 'evaluation.svg'}")
+    if update_readme(results):
+        print("updated README.md results block")
 
 
 if __name__ == "__main__":
