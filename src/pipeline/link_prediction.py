@@ -1,20 +1,32 @@
 """Link prediction for drug-target interactions.
 
-Evaluation protocol (see train_model):
-  Known edges are shuffled with a fixed seed and split three ways:
-    - message edges (60%): the graph every feature and embedding is computed on
-    - train edges (20%): positive training examples, absent from the message graph
-    - test edges (20%): positive test examples, absent from the message graph
-  Train and test positives are therefore both unseen by the features, so the
-  model is trained on the same feature distribution it is tested on. Negatives
-  are random drug-target pairs with no known interaction, drawn only from drugs
-  and targets that have at least one interaction, and train/test negatives do
-  not overlap.
+Two evaluation splits are supported (see split_edges):
 
-  DrugBank has no per-interaction dates, so this is a random split, not a
-  temporal one.
+random
+    Known edges are shuffled with a fixed seed and split 60/20/20 into message
+    edges (the graph every feature and embedding is computed on), train
+    positives and test positives. Negatives are uniformly random drug-target
+    pairs with no known interaction, drawn only from drugs and targets that
+    have at least one interaction. This is a random edge split: DrugBank has
+    no per-interaction dates, so nothing here is temporal.
+
+drug_holdout
+    The stricter split. A true cold-start split (whole drugs unseen) cannot be
+    scored by this model: Node2Vec only embeds nodes it walked over, so a drug
+    with no edges in the message graph has no embedding and zero degree, and
+    every candidate target would be ranked by target popularity alone.
+    Instead, 20% of drugs with at least two targets are test drugs and half of
+    each test drug's edges (at least one) are hidden; another 20% of drugs
+    supply training positives the same way. Each positive (d, t) gets a
+    negative (d, t') for the same drug, with t' drawn from targets in the same
+    degree bin as t, so the model cannot win by preferring popular targets or
+    by recognising which drugs appear in the positive set.
+
+In both splits, train and test positives are absent from the message graph,
+so the model is trained on the same feature distribution it is tested on.
 """
 
+import math
 import pickle
 
 import networkx as nx
@@ -31,6 +43,38 @@ FEATURE_NAMES = [
     "total_neighbors", "embedding_dot", "drug_embedding_mean", "target_embedding_mean",
 ]
 
+SPLIT_DESCRIPTIONS = {
+    "random": "Random edge split 60/20/20 (message/train/test), uniform random negatives",
+    "drug_holdout": ("Per-drug holdout: 20% of drugs with 2+ targets are test drugs with half "
+                     "their edges hidden; negatives use the same drug and a degree-matched target"),
+    "final": "All edges: 80% message graph, 20% training positives; no test set",
+}
+
+
+def _ranking_metrics(y, scores):
+    return roc_auc_score(y, scores), average_precision_score(y, scores)
+
+
+def bootstrap_ci(y, scores, n_boot=1000, seed=42, alpha=0.05):
+    """Percentile bootstrap CIs for ROC AUC and AP, resampling test pairs with replacement."""
+    rng = np.random.default_rng(seed)
+    y = np.asarray(y)
+    scores = np.asarray(scores, dtype=float)
+    aucs, aps = [], []
+    for _ in range(n_boot):
+        idx = rng.integers(len(y), size=len(y))
+        if y[idx].min() == y[idx].max():
+            continue
+        a, p = _ranking_metrics(y[idx], scores[idx])
+        aucs.append(a)
+        aps.append(p)
+    lo, hi = 100 * alpha / 2, 100 * (1 - alpha / 2)
+    return {
+        "roc_auc_ci95": [float(np.percentile(aucs, lo)), float(np.percentile(aucs, hi))],
+        "ap_ci95": [float(np.percentile(aps, lo)), float(np.percentile(aps, hi))],
+        "n_boot": len(aucs),
+    }
+
 
 class DTILinkPredictor:
     """Drug-Target Interaction Link Predictor using machine learning."""
@@ -42,26 +86,24 @@ class DTILinkPredictor:
         self.scaler = StandardScaler()
         self.drug_nodes = set()
         self.target_nodes = set()
+        self.split = None
         self.train_graph = None  # the message graph features are computed on
-        self.test_edges = None
+        self.message_edges = []
+        self.train_edges = []
+        self.test_edges = []
         self.embeddings_df = None
 
     def load_data(self, drugs_df, targets_df, dti_df, embeddings_df=None):
         """Load data for link prediction."""
+        from pipeline.build_graph import build_bipartite_graph
+
         self.drugs_df = drugs_df
         self.targets_df = targets_df
         self.dti_df = dti_df
         self.set_embeddings(embeddings_df)
-
-        self.G = nx.Graph()
-        for drug_id, name in zip(drugs_df["drug_id"], drugs_df["name"]):
-            self.G.add_node(drug_id, node_type="drug", name=name)
-            self.drug_nodes.add(drug_id)
-        for target_id, name in zip(targets_df["target_id"], targets_df["name"]):
-            self.G.add_node(target_id, node_type="target", name=name)
-            self.target_nodes.add(target_id)
-        self.G.add_edges_from(zip(dti_df["drug_id"], dti_df["target_id"]))
-
+        self.G = build_bipartite_graph(drugs_df, targets_df, dti_df)
+        self.drug_nodes = {n for n, d in self.G.nodes(data=True) if d["node_type"] == "drug"}
+        self.target_nodes = {n for n, d in self.G.nodes(data=True) if d["node_type"] == "target"}
         print(f"Built graph: {len(self.G.nodes())} nodes, {len(self.G.edges())} edges")
 
     def set_embeddings(self, embeddings_df):
@@ -70,42 +112,73 @@ class DTILinkPredictor:
             embeddings_df = embeddings_df.set_index("node_id")
         self.embeddings_df = embeddings_df
 
-    @staticmethod
-    def _canonical(edge, drug_nodes):
-        a, b = edge
-        return (a, b) if a in drug_nodes else (b, a)
+    def _sorted_edges(self):
+        return sorted((a, b) if a in self.drug_nodes else (b, a) for a, b in self.G.edges())
 
-    def random_split_edges(self, train_ratio=0.2, test_ratio=0.2):
-        """Randomly split known edges into message / train / test sets (seeded)."""
-        edges = sorted(self._canonical(e, self.drug_nodes) for e in self.G.edges())
-        order = self.rng.permutation(len(edges))
-        edges = [edges[i] for i in order]
+    # ----- splits -------------------------------------------------------------
 
-        n_test = int(len(edges) * test_ratio)
-        n_train = int(len(edges) * train_ratio)
-        test_edges = edges[:n_test]
-        train_edges = edges[n_test:n_test + n_train]
-        message_edges = edges[n_test + n_train:]
+    def split_edges(self, kind="random"):
+        """Split known edges into message / train / test sets (seeded). Returns (train, test)."""
+        edges = self._sorted_edges()
+        if kind == "random":
+            edges = [edges[i] for i in self.rng.permutation(len(edges))]
+            n_test = int(len(edges) * 0.2)
+            n_train = int(len(edges) * 0.2)
+            test, train = edges[:n_test], edges[n_test:n_test + n_train]
+        elif kind == "final":
+            edges = [edges[i] for i in self.rng.permutation(len(edges))]
+            test, train = [], edges[:int(len(edges) * 0.2)]
+        elif kind == "drug_holdout":
+            train, test = self._drug_holdout(edges)
+        else:
+            raise ValueError(f"unknown split {kind!r}")
 
+        held = set(train) | set(test)
+        self.split = kind
+        self.train_edges, self.test_edges = train, test
+        self.message_edges = [e for e in edges if e not in held]
         self.train_graph = nx.Graph()
         self.train_graph.add_nodes_from(self.G.nodes(data=True))
-        self.train_graph.add_edges_from(message_edges)
-        self.message_edges = message_edges
-        self.test_edges = test_edges
+        self.train_graph.add_edges_from(self.message_edges)
 
-        print(f"Random split (seed {self.seed}): {len(message_edges)} message edges, "
-              f"{len(train_edges)} train edges, {len(test_edges)} test edges")
-        return train_edges, test_edges
+        print(f"{kind} split (seed {self.seed}): {len(self.message_edges)} message edges, "
+              f"{len(train)} train edges, {len(test)} test edges")
+        return train, test
 
-    def sample_negatives(self, n, exclude=frozenset()):
-        """Sample n distinct non-interacting pairs among drugs/targets with >=1 interaction."""
+    def _drug_holdout(self, edges, drug_frac=0.2, edge_frac=0.5):
+        by_drug = {}
+        for d, t in edges:
+            by_drug.setdefault(d, []).append((d, t))
+        eligible = sorted(d for d, es in by_drug.items() if len(es) >= 2)
+        order = [eligible[i] for i in self.rng.permutation(len(eligible))]
+        n = int(len(order) * drug_frac)
+        self.test_drugs, self.train_drugs = order[:n], order[n:2 * n]
+
+        def hide(drugs):
+            hidden = []
+            for d in drugs:
+                es = by_drug[d]
+                k = max(1, math.floor(len(es) * edge_frac))
+                hidden += [es[i] for i in self.rng.permutation(len(es))[:k]]
+            return hidden
+
+        return hide(self.train_drugs), hide(self.test_drugs)
+
+    # ----- negatives ----------------------------------------------------------
+
+    def sample_negatives(self, positives, exclude=frozenset()):
+        """One negative per positive, following the current split's protocol."""
+        if self.split == "drug_holdout":
+            return self._degree_matched_negatives(positives, exclude)
+        return self._uniform_negatives(len(positives), exclude)
+
+    def _uniform_negatives(self, n, exclude):
         drugs = sorted(d for d in self.drug_nodes if self.G.degree(d) > 0)
         targets = sorted(t for t in self.target_nodes if self.G.degree(t) > 0)
         pairs = set()
         while len(pairs) < n:
-            ds = self.rng.integers(len(drugs), size=n)
-            ts = self.rng.integers(len(targets), size=n)
-            for i, j in zip(ds, ts):
+            for i, j in zip(self.rng.integers(len(drugs), size=n),
+                            self.rng.integers(len(targets), size=n)):
                 pair = (drugs[i], targets[j])
                 if pair in pairs or pair in exclude or self.G.has_edge(*pair):
                     continue
@@ -113,6 +186,34 @@ class DTILinkPredictor:
                 if len(pairs) == n:
                     break
         return sorted(pairs)
+
+    def _degree_bin(self, t):
+        return int(math.log2(self.G.degree(t)))
+
+    def _degree_matched_negatives(self, positives, exclude):
+        bins = {}
+        for t in sorted(self.target_nodes):
+            if self.G.degree(t) > 0:
+                bins.setdefault(self._degree_bin(t), []).append(t)
+        used = set(exclude)
+        negatives = []
+        for d, t in positives:
+            b = self._degree_bin(t)
+            pool = bins[b]
+            for _ in range(50):
+                cand = pool[self.rng.integers(len(pool))]
+                if (d, cand) not in used and not self.G.has_edge(d, cand):
+                    break
+            else:
+                # Bin exhausted for this drug: widen to neighbouring bins.
+                pool = [x for k in (b - 1, b, b + 1) for x in bins.get(k, [])
+                        if (d, x) not in used and not self.G.has_edge(d, x)]
+                cand = pool[self.rng.integers(len(pool))]
+            used.add((d, cand))
+            negatives.append((d, cand))
+        return negatives
+
+    # ----- features -----------------------------------------------------------
 
     def extract_features_safe(self, drug_id, target_id, use_train_graph=True):
         """Extract features for a drug-target pair from the message graph."""
@@ -160,127 +261,99 @@ class DTILinkPredictor:
     def _features(self, pairs):
         return np.vstack([self.extract_features_safe(d, t) for d, t in pairs])
 
+    # ----- training and evaluation -------------------------------------------
+
     def train_model(self):
-        """Train on the train split and evaluate on the held-out test split.
-
-        Call random_split_edges() first if embeddings must be trained on the
-        message graph; otherwise it is called here.
-        """
+        """Fit on the current split's training pairs; evaluate on its test pairs if any."""
         if self.train_graph is None:
-            self.random_split_edges()
-        train_edges = self._train_edges_from_split()
-        test_edges = self.test_edges
+            self.split_edges("random")
 
-        train_negatives = self.sample_negatives(len(train_edges))
-        test_negatives = self.sample_negatives(len(test_edges), exclude=set(train_negatives))
-
-        X = self._features(train_edges + train_negatives)
-        y = np.array([1] * len(train_edges) + [0] * len(train_negatives))
-        X_scaled = self.scaler.fit_transform(X)
-
+        train_neg = self.sample_negatives(self.train_edges)
+        X = self._features(self.train_edges + train_neg)
+        y = np.array([1] * len(self.train_edges) + [0] * len(train_neg))
         self.model = RandomForestClassifier(n_estimators=100, random_state=self.seed, n_jobs=-1)
-        self.model.fit(X_scaled, y)
+        self.model.fit(self.scaler.fit_transform(X), y)
 
-        X_test = self._features(test_edges + test_negatives)
-        y_test = np.array([1] * len(test_edges) + [0] * len(test_negatives))
-        y_proba = self.model.predict_proba(self.scaler.transform(X_test))[:, 1]
+        perf = {
+            "split": self.split,
+            "split_description": SPLIT_DESCRIPTIONS[self.split],
+            "message_edges": len(self.message_edges),
+            "train_positives": len(self.train_edges),
+            "train_negatives": len(train_neg),
+        }
+        self.evaluation_results = {"model_performance": perf}
+        if not self.test_edges:
+            return perf
 
-        roc = roc_auc_score(y_test, y_proba)
-        precision, recall, _ = precision_recall_curve(y_test, y_proba)
-        pr_auc = area_under_curve(recall, precision)
-        ap = average_precision_score(y_test, y_proba)
+        test_neg = self.sample_negatives(self.test_edges, exclude=set(train_neg))
+        pairs = self.test_edges + test_neg
+        y_test = np.array([1] * len(self.test_edges) + [0] * len(test_neg))
+        proba = self.model.predict_proba(self.scaler.transform(self._features(pairs)))[:, 1]
 
-        print("Model Performance:")
-        print(f"  ROC AUC: {roc:.4f}")
-        print(f"  PR AUC (trapezoidal): {pr_auc:.4f}")
-        print(f"  Average Precision: {ap:.4f}")
-        print(f"  Test Set: {len(test_edges)} positive, {len(test_negatives)} negative pairs")
+        roc, ap = _ranking_metrics(y_test, proba)
+        precision, recall, _ = precision_recall_curve(y_test, proba)
+        frac_pos, mean_pred = calibration_curve(y_test, proba, n_bins=10)
+        perf.update({
+            "auc": roc,
+            "ap_score": ap,
+            "pr_auc": area_under_curve(recall, precision),
+            "brier_score": float(np.mean((proba - y_test) ** 2)),
+            "test_positives": len(self.test_edges),
+            "test_negatives": len(test_neg),
+            **bootstrap_ci(y_test, proba, seed=self.seed),
+        })
+        if self.split == "drug_holdout":
+            perf["test_drugs"] = len(self.test_drugs)
 
-        self.evaluation_results = {
-            "model_performance": {
-                "auc": roc,
-                "pr_auc": pr_auc,
-                "ap_score": ap,
-                "test_positives": len(test_edges),
-                "test_negatives": len(test_negatives),
-                "train_positives": len(train_edges),
-                "train_negatives": len(train_negatives),
-                "message_edges": len(self.message_edges),
-                "split": f"random edge split 60/20/20, seed {self.seed}",
-            },
+        self.evaluation_results.update({
+            "baselines": self.compare_baselines(pairs, y_test),
+            "calibration": {"fraction_of_positives": frac_pos,
+                            "mean_predicted_value": mean_pred},
             "feature_importances": dict(zip(FEATURE_NAMES, self.model.feature_importances_)),
-            "test_edges": test_edges,
-            "test_negatives": test_negatives,
-            "test_scores": y_proba,
-        }
-        return roc, pr_auc, ap
-
-    def _train_edges_from_split(self):
-        message = set(self.message_edges)
-        test = set(self.test_edges)
-        all_edges = sorted(self._canonical(e, self.drug_nodes) for e in self.G.edges())
-        return [e for e in all_edges if e not in message and e not in test]
-
-    def evaluate_calibration(self, test_edges, test_negatives):
-        """Evaluate model calibration on the test split."""
-        y_test = np.array([1] * len(test_edges) + [0] * len(test_negatives))
-        y_proba = self.model.predict_proba(
-            self.scaler.transform(self._features(test_edges + test_negatives)))[:, 1]
-
-        fraction_of_positives, mean_predicted_value = calibration_curve(y_test, y_proba, n_bins=10)
-        return {
-            "fraction_of_positives": fraction_of_positives,
-            "mean_predicted_value": mean_predicted_value,
-            "brier_score": float(np.mean((y_proba - y_test) ** 2)),
-        }
+            "test_pairs": pairs,
+            "test_labels": y_test,
+            "test_scores": proba,
+        })
+        print(f"[{self.split}] ROC AUC {roc:.4f} {perf['roc_auc_ci95']}, AP {ap:.4f} {perf['ap_ci95']}")
+        return perf
 
     def _l3_paths(self, drug_id, target_id):
         """Number of drug-target'-drug'-target paths in the message graph."""
         g = self.train_graph
-        if drug_id not in g or target_id not in g:
-            return 0
         drug_targets = set(g.neighbors(drug_id))
         return sum(len(drug_targets & set(g.neighbors(d2))) for d2 in g.neighbors(target_id))
 
-    def compare_baselines(self, test_edges, test_negatives):
-        """Score the test pairs with unsupervised baselines on the message graph.
+    def compare_baselines(self, pairs, y_test):
+        """Unsupervised baselines scored on the message graph, with bootstrap CIs.
 
-        Common neighbours, Jaccard and Adamic-Adar are 0 for every drug-target
-        pair in a bipartite graph, so they cannot rank anything; they are
-        reported as such rather than padded with random noise. Preferential
-        attachment and length-3 path counts are the bipartite equivalents.
+        Common neighbours is 0 for every drug-target pair in a bipartite graph
+        (a drug's neighbours are targets, a target's are drugs), so it ties
+        every pair and scores exactly like chance. It is reported as computed.
+        Length-3 paths is the bipartite analogue of common neighbours.
         """
-        pairs = test_edges + test_negatives
-        y_test = np.array([1] * len(test_edges) + [0] * len(test_negatives))
         g = self.train_graph
-
         scores = {
+            "chance": [0.0] * len(pairs),
+            "common_neighbors": [len(set(g.neighbors(d)) & set(g.neighbors(t))) for d, t in pairs],
             "preferential_attachment": [g.degree(d) * g.degree(t) for d, t in pairs],
             "l3_paths": [self._l3_paths(d, t) for d, t in pairs],
         }
-        if self.embeddings_df is not None:
-            scores["embedding_dot"] = [self.extract_features_safe(d, t)[9] for d, t in pairs]
-
         results = {}
         for name, s in scores.items():
-            results[name] = {
-                "roc_auc": roc_auc_score(y_test, s),
-                "ap_score": average_precision_score(y_test, s),
-            }
-        results["common_neighbors_jaccard_adamic_adar"] = {
-            "roc_auc": None,
-            "ap_score": None,
-            "note": "always 0 for drug-target pairs in a bipartite graph",
-        }
+            roc, ap = _ranking_metrics(y_test, s)
+            results[name] = {"roc_auc": roc, "ap_score": ap, **bootstrap_ci(y_test, s, seed=self.seed)}
         return results
 
     def predict_interaction(self, drug_id, target_id):
         """Predict interaction probability for a drug-target pair."""
         if self.model is None:
             raise ValueError("Model not trained. Call train_model() first.")
-
         features = self.extract_features_safe(drug_id, target_id, use_train_graph=True)
         return self.model.predict_proba(self.scaler.transform(features.reshape(1, -1)))[0, 1]
+
+    def score_pairs(self, pairs):
+        """Interaction probabilities for many (drug, target) pairs."""
+        return self.model.predict_proba(self.scaler.transform(self._features(pairs)))[:, 1]
 
     def save_model(self, filepath):
         """Save the trained model."""
