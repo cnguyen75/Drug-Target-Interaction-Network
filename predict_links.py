@@ -24,18 +24,13 @@ import numpy as np
 import pandas as pd
 
 sys.path.append(str(Path(__file__).parent / "src"))
-from pipeline.explore import evidence, featured_mask
+from pipeline.explore import evidence, featured_mask, rank_key
 from pipeline.link_prediction import DTILinkPredictor
 
 TOP_K = 10
 THRESHOLDS = (0.5, 0.6, 0.7, 0.8, 0.9, 0.95)
 SHORTLIST = 10
 RESULTS_FP = Path("results/results.json")
-
-
-def rank_key(G, item):
-    target, score = item
-    return (-round(float(score), 6), G.degree(target), target)
 
 
 def main():

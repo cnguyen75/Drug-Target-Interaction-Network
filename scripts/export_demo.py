@@ -28,7 +28,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(ROOT / "src"))
-from pipeline.explore import featured_mask  # noqa: E402
+from pipeline.explore import featured_mask, rank_key  # noqa: E402
 from pipeline.link_prediction import DTILinkPredictor  # noqa: E402
 
 DEMO_DRUGS = [
@@ -74,7 +74,7 @@ def main():
             missing.append(name)
             continue
         scores = p.score_candidates(d)
-        ranked = sorted(scores.items(), key=lambda x: (-round(float(x[1]), 6), G.degree(x[0]), x[0]))
+        ranked = sorted(scores.items(), key=lambda x: rank_key(G, x))
         top = ranked[:TOP_K]
         shown = [f"{s:.2f}" for _, s in top]
         entry = {

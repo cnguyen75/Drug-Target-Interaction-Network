@@ -89,6 +89,12 @@ def evidence(G, node, partner, emb=None, max_names=2, label=None):
     return "No shared-target path in the data; the score comes from degree and embedding position."
 
 
+def rank_key(G, item):
+    """Suggestion order used everywhere: score, then rarer partner, then id."""
+    partner, score = item
+    return (-round(float(score), 6), G.degree(partner), partner)
+
+
 def neighbourhood(G, node, scores, min_score, max_known=24, max_related=8, max_predicted=5,
                   keep=None):
     """Nodes and edges around `node` for the network figure and the table view.
@@ -110,7 +116,7 @@ def neighbourhood(G, node, scores, min_score, max_known=24, max_related=8, max_p
                 related.setdefault(other, set()).add(k)
     related_shown = sorted(related, key=lambda o: (-len(related[o]), -G.degree(o), o))[:max_related]
 
-    predicted = [(p, s) for p, s in sorted(scores.items(), key=lambda x: (-x[1], x[0]))
+    predicted = [(p, s) for p, s in sorted(scores.items(), key=lambda x: rank_key(G, x))
                  if s >= min_score and p not in known_set][:max_predicted]
 
     edges = [{"source": node, "target": k, "kind": "known"} for k in known_shown]

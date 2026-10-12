@@ -20,7 +20,8 @@ from dash import Input, Output, State, ctx, dcc, html
 sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
 from config import DRUGS_FP, DTI_FP, TARGETS_FP
 from pipeline.build_graph import build_bipartite_graph
-from pipeline.explore import edge_table, evidence, featured_mask, neighbourhood, radial_layout
+from pipeline.explore import (edge_table, evidence, featured_mask, neighbourhood, radial_layout,
+                              rank_key)
 from pipeline.link_prediction import DTILinkPredictor
 
 ROOT = Path(__file__).parent
@@ -287,7 +288,8 @@ def network_figure(nb, show):
     if "predicted" in show and nb["predicted"]:
         ids = [p for p, _ in nb["predicted"]]
         nodes(ids, partner_is_drug, 16, CARD, PURPLE, 3,
-              [f"{label(p)} · {s:.2f}" for p, s in nb["predicted"]])
+              [f"{label(p)} · {score_text(s, [v for _, v in nb['predicted']])[0]}"
+               for p, s in nb["predicted"]])
     nodes([center], center_is_drug, 30, same_fill, INK, 3, [""], "top center")
     fig.add_annotation(x=0, y=0.22, text=f"<b>{label(center)}</b>", showarrow=False, yanchor="bottom",
                        font=dict(family="Archivo", size=15, color=INK), bgcolor=CARD)
@@ -345,7 +347,7 @@ def details_panel(node, nb, scores, min_score):
         info = TARGET_INFO.loc[node]
         meta = f"UniProt {node}" + (f" · gene {info['gene_symbol']}" if info["gene_symbol"] else "")
         note = None
-    ranked = [(p, s) for p, s in sorted(scores.items(), key=lambda x: (-x[1], G.degree(x[0]), x[0]))
+    ranked = [(p, s) for p, s in sorted(scores.items(), key=lambda x: rank_key(G, x))
               if s >= min_score]
     shown = [s for _, s in ranked[:5]]
     heading = "Suggested new targets" if drug else "Suggested drugs (approved small molecules)"
