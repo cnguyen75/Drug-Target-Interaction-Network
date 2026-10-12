@@ -97,3 +97,6 @@ site/
 !screenshots/*.jpg
 !screenshots/*.jpeg
 
+
+# Test fixture (hand-written, not DrugBank data)
+!tests/fixtures/*.xml

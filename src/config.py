@@ -27,10 +27,10 @@ DATA_DIR = ensure_data_dir()
 # Raw data paths
 RAW_XML = REPO_ROOT / "data_raw" / "drugbank.xml"
 
-# Processed data paths (parquet)
-DRUGS_FP = DATA_DIR / "drugs.parquet"
-TARGETS_FP = DATA_DIR / "targets.parquet"
-DTI_FP = DATA_DIR / "dti.parquet"
+# Parsed tables (parquet), written by src/datasources/drugbank_loader.py
+DRUGS_FP = REPO_ROOT / "data_raw" / "drugs_full.parquet"
+TARGETS_FP = REPO_ROOT / "data_raw" / "targets_full.parquet"
+DTI_FP = REPO_ROOT / "data_raw" / "dti_full.parquet"
 
 # Graph paths (gpickle)
 G_BIP_FP = DATA_DIR / "graph_bipartite.gpickle"

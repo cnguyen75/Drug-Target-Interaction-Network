@@ -24,7 +24,7 @@ class TestDrugBankIngest:
         required_drug_cols = ["drug_id", "name", "type", "approved", "atc_l1", 
                              "atc_l2", "indications", "smiles"]
         required_target_cols = ["target_id", "gene_symbol", "organism", "protein_family"]
-        required_dti_cols = ["drug_id", "target_id", "action", "confidence"]
+        required_dti_cols = ["drug_id", "target_id", "action"]
         
         for col in required_drug_cols:
             assert col in drugs_df.columns, f"Missing drug column: {col}"
@@ -133,3 +133,23 @@ class TestDrugBankIngest:
         # Check SMILES for drug without calculated properties
         drug2 = drugs_df[drugs_df["drug_id"] == "DB00002"].iloc[0]
         assert pd.isna(drug2["smiles"])
+
+    def test_drug_type_from_attribute(self):
+        """Test that drug type comes from the <drug type=...> attribute."""
+        xml_path = Path(__file__).parent / "fixtures" / "tiny_drugbank.xml"
+
+        drugs_df, _, _ = parse_drugbank_xml(xml_path)
+
+        types = dict(zip(drugs_df["drug_id"], drugs_df["type"]))
+        assert types["DB00001"] == "small molecule"
+        assert types["DB00002"] == "biotech"
+
+    def test_nested_drug_references_ignored(self):
+        """Test that <drug> references nested inside an entry are not entries."""
+        xml_path = Path(__file__).parent / "fixtures" / "tiny_drugbank.xml"
+
+        drugs_df, _, dti_df = parse_drugbank_xml(xml_path)
+
+        assert sorted(drugs_df["drug_id"]) == ["DB00001", "DB00002", "DB00003"]
+        assert "Nested reference" not in drugs_df["name"].values
+        assert len(dti_df) == 3

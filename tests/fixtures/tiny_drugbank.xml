@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-written test fixture in DrugBank's XML schema. All IDs, names and
+     values are made up; this is not DrugBank data. -->
+<drugbank xmlns="http://www.drugbank.ca" version="test">
+  <drug type="small molecule">
+    <drugbank-id primary="true">DB00001</drugbank-id>
+    <name>Testdrug A</name>
+    <indication>Test indication.</indication>
+    <groups><group>approved</group></groups>
+    <atc-codes><atc-code code="A01AB01"/></atc-codes>
+    <calculated-properties>
+      <property><kind>logP</kind><value>3.5</value></property>
+      <property><kind>SMILES</kind><value>CC(C)CC1=CC=C(C=C1)C(C)C(=O)O</value></property>
+    </calculated-properties>
+    <pathways><pathway><drugs>
+      <drug><drugbank-id>DB00002</drugbank-id><name>Nested reference</name></drug>
+    </drugs></pathway></pathways>
+    <targets>
+      <target>
+        <name>Test target one</name>
+        <organism>Homo sapiens</organism>
+        <actions><action>inhibitor</action></actions>
+        <polypeptide id="P12345"><name>Test protein one</name><gene-name>TST1</gene-name></polypeptide>
+      </target>
+      <target>
+        <name>Test target one again</name>
+        <organism>Homo sapiens</organism>
+        <polypeptide id="P12345"><gene-name>TST1</gene-name></polypeptide>
+      </target>
+      <target>
+        <name>Mouse target</name>
+        <organism>Mus musculus</organism>
+        <polypeptide id="P99999"><gene-name>Mtst</gene-name></polypeptide>
+      </target>
+    </targets>
+  </drug>
+  <drug type="biotech">
+    <drugbank-id primary="true">DB00002</drugbank-id>
+    <name>Testdrug B</name>
+    <groups><group>approved</group><group>investigational</group></groups>
+    <atc-codes><atc-code code="B02BD01"/></atc-codes>
+    <targets>
+      <target>
+        <name>Test target two</name>
+        <organism>Homo sapiens</organism>
+        <polypeptide id="P67890"><gene-name>TST2</gene-name></polypeptide>
+      </target>
+      <target>
+        <name>Target without polypeptide</name>
+        <organism>Homo sapiens</organism>
+      </target>
+    </targets>
+  </drug>
+  <drug type="small molecule">
+    <drugbank-id primary="true">DB00003</drugbank-id>
+    <name>Testdrug C</name>
+    <groups><group>experimental</group></groups>
+    <targets>
+      <target>
+        <name>Test target two</name>
+        <organism>Homo sapiens</organism>
+        <polypeptide id="P67890"><gene-name>TST2</gene-name></polypeptide>
+      </target>
+    </targets>
+  </drug>
+  <drug type="small molecule">
+    <drugbank-id primary="true">DB00001</drugbank-id>
+    <name>Duplicate of A</name>
+    <groups><group>approved</group></groups>
+  </drug>
+  <drug type="small molecule">
+    <drugbank-id>DB09999</drugbank-id>
+    <name>No primary id</name>
+  </drug>
+</drugbank>
