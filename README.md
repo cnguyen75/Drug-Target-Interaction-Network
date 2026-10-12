@@ -2,6 +2,8 @@
 
 ![The explore view: Imatinib, its known targets, drugs that share them, and predicted targets](docs/explore.png)
 
+<sub>Interaction data from DrugBank 5.1, used under CC BY-NC 4.0 for non-commercial purposes.</sub>
+
 A Dash app and pipeline that turn a DrugBank export into a drug–target network, learn which unrecorded drug–target pairs look like real interactions, and show the evidence for each suggestion. Drugs and human protein targets form a bipartite graph; Node2Vec embeds it; a random forest scores pairs from graph and embedding features. The app has four views: **explore** (search a drug or target, see its neighbourhood and ranked suggestions), **predictions**, **evaluation** and **methods**.
 
 ## Run it
@@ -66,5 +68,7 @@ An earlier version of this README reported ROC AUC 0.93 on a "temporal" split. T
 - **DrugBank entries** include ions, salts, supplements and cell therapies. The app features approved small molecules only and hides other entry types from the graph by default.
 
 ## Licence
+
+Interaction data from DrugBank 5.1, used under CC BY-NC 4.0 for non-commercial purposes.
 
 Code: MIT (see `LICENSE`). DrugBank data is licensed separately by DrugBank (CC BY-NC 4.0 for the full database) and is not included. Fonts: Archivo and Courier Prime, SIL Open Font License (`assets/fonts/`).

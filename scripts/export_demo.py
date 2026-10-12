@@ -14,8 +14,9 @@ By default nothing row-for-row from DrugBank is exported: no known
 drug-target pairs and no DrugBank text. Drug names come with DrugBank IDs
 (both are in DrugBank's CC0 "Open Data" vocabulary); targets are identified
 by UniProt accession and gene symbol. Known interactions appear only as
-counts. --include-known adds each drug's known target list and should only
-be used once redistribution has been cleared.
+counts. --include-known adds each drug's known targets (UniProt accession and
+gene symbol only); Colin approved this for the 23 demo drugs on 2026-10-12.
+The attribution field must be shown wherever the demo appears.
 """
 
 import argparse
@@ -37,6 +38,7 @@ DEMO_DRUGS = [
     "Celecoxib", "Acetylsalicylic acid", "Morphine", "Sertraline", "Fluoxetine", "Haloperidol",
     "Diazepam", "Sildenafil", "Omeprazole", "Loratadine", "Caffeine",
 ]
+ATTRIBUTION = "Interaction data from DrugBank 5.1, used under CC BY-NC 4.0 for non-commercial purposes."
 TOP_K = 5
 MAX_BYTES = 500_000
 
@@ -110,8 +112,10 @@ def main():
             "calibration": results["app_model"]["calibration"],
             "default_threshold": threshold,
         },
+        "attribution": ATTRIBUTION,
         "contents": ("model outputs and public identifiers only" if not args.include_known
-                     else "includes known DrugBank drug-target pairs"),
+                     else "model outputs, public identifiers and each drug's known targets "
+                          "(UniProt accession and gene symbol)"),
         "score_note": ("Calibrated on validation pairs with one non-interaction per interaction; a "
                        "ranking signal, not the chance an interaction is real. score_tied marks "
                        "scores that round to the same two decimals as another shown candidate."),

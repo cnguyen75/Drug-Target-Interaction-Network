@@ -92,6 +92,9 @@ nav { display: flex; flex-wrap: wrap; gap: 0 4px; font-family: "Courier Prime", 
 .full-name { font-size: 14px; margin-top: 2px; }
 .reason { font-size: 14px; color: var(--secondary); margin-top: 2px; }
 
+/* Footer */
+.site-footer { border-top: 1px solid var(--rule); padding-top: 12px; }
+
 /* Bars */
 .bar-track { flex: 1 1 70px; position: relative; display: block; min-width: 0; }
 .bar-track.tall { background: var(--track); height: 20px; }

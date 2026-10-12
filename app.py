@@ -48,6 +48,7 @@ METHOD_LABELS = {
 NEGATIVE_WORDS = {"uniform": "uniform-negative", "degree_matched": "degree-matched"}
 OTHER_SCHEME = {"uniform": "degree_matched", "degree_matched": "uniform"}
 DEFAULT_NODE_NAME = "Imatinib"
+ATTRIBUTION = "Interaction data from DrugBank 5.1, used under CC BY-NC 4.0 for non-commercial purposes."
 
 
 # ----- data ------------------------------------------------------------------
@@ -653,7 +654,8 @@ server = app.server
 app.layout = html.Div([
     dcc.Location(id="url"),
     dcc.Store(id="viewport-width"),
-    html.Div([header(), html.Main(id="page")], className="wrap"),
+    html.Div([header(), html.Main(id="page"),
+              html.Footer(ATTRIBUTION, className="site-footer mono")], className="wrap"),
 ], className="page")
 
 
