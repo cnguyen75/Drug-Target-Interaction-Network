@@ -100,6 +100,7 @@ nav { display: flex; flex-wrap: wrap; gap: 0 4px; font-family: "Courier Prime", 
 .bar-fill.purple { background: var(--purple); border-radius: 0 3px 3px 0; }
 .bar-fill.blue { background: var(--blue); }
 .bar-fill.grey { background: var(--baseline); }
+.bar-fill.purple-bar { background: var(--purple); }
 .ci { position: absolute; top: 7px; height: 6px; background: var(--ink); }
 .bar-row { display: flex; align-items: center; gap: 12px; }
 .bar-label { flex: 0 0 170px; font-size: 15px; }

@@ -424,14 +424,14 @@ def predictions_view():
 
 # ----- evaluation view -------------------------------------------------------
 
-def metric_bar(name, block, primary, key="roc_auc"):
+def metric_bar(name, block, colour, key="roc_auc"):
     value = block[key]
     lo, hi = block[f"{key}_ci95"] if key == "roc_auc" else block["average_precision_ci95"]
     return html.Div([
         html.Span(name, className="bar-label"),
         html.Span([
             html.Span(style={"width": f"{value * 100:.1f}%"},
-                      className="bar-fill " + ("blue" if primary else "grey")),
+                      className="bar-fill " + colour),
             html.Span(style={"left": f"{lo * 100:.1f}%", "width": f"{max(hi - lo, 0.002) * 100:.1f}%"},
                       className="ci", title=f"95% interval {lo:.3f}–{hi:.3f}"),
         ], className="bar-track tall"),
@@ -442,9 +442,9 @@ def metric_bar(name, block, primary, key="roc_auc"):
 
 def split_panel(kind, split):
     models = split["models"]
-    rows = [(MODEL_LABELS[m] + (" (app)" if m == APP_SCHEME else ""), models[m], True)
-            for m in ("uniform", "degree_matched")]
-    rows += [(METHOD_LABELS[b], split["baselines"][b], False)
+    rows = [(MODEL_LABELS[APP_SCHEME] + " (app)", models[APP_SCHEME], "blue"),
+            (MODEL_LABELS[OTHER_SCHEME[APP_SCHEME]], models[OTHER_SCHEME[APP_SCHEME]], "purple-bar")]
+    rows += [(METHOD_LABELS[b], split["baselines"][b], "grey")
              for b in ("l3_paths", "preferential_attachment", "chance")]
     c = split["counts"]
     test_line = (f"{c['test_positives']:,} held-out interactions and {c['test_negatives']:,} "
@@ -458,7 +458,7 @@ def split_panel(kind, split):
         html.H3(SPLIT_LABELS[kind]),
         html.P(split["description"] + ".", className="secondary small"),
         html.Div("ROC AUC on held-out pairs", className="field-title"),
-        *[metric_bar(name, b, primary) for name, b, primary in rows],
+        *[metric_bar(name, b, colour) for name, b, colour in rows],
         mono(test_line + " · bars show the score, the dark band its 95% interval"),
         html.Details([
             html.Summary("Average precision"),
