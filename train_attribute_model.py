@@ -12,8 +12,14 @@ on three splits: random edge split, per-drug split, and the whole-drug
 holdout (test drugs have every edge removed). No hyperparameters are tuned;
 validation scores are recorded, and each test set is scored once.
 
-Writes results/results_attributes.json. Does not touch results/results.json or
-the app's model; `python train_ml_models.py` reproduces the current model.
+It then trains the two calibrated copies the app uses (v3):
+    models/attribute_model_seen.pkl  per-drug protocol ("final"): drugs with
+                                     known targets, and target queries
+    models/attribute_model_cold.pkl  whole-drug protocol ("final_cold"): drugs
+                                     with no known targets
+
+Writes results/results_attributes.json. Does not touch results/results.json;
+`python train_ml_models.py` reproduces the v2 graph-only model.
 """
 
 import json
@@ -122,6 +128,24 @@ def main():
         out_splits[kind] = entry
         print(f"[{kind}] done in {time.time() - ts:.0f}s")
 
+    app_copies = {}
+    for name, kind in (("seen", "final"), ("cold", "final_cold")):
+        print(f"[app/{name}] training the app copy ({kind})...")
+        p = AttributeLinkPredictor(drug_attrs, target_attrs, seed=SEED)
+        p.load_data(*tables)
+        p.split_edges(kind)
+        p.set_embeddings(embed_graph(p.train_graph, seed=SEED))
+        p.fit()
+        p.validate()
+        p.calibrate("isotonic")
+        p.save_model(f"models/attribute_model_{name}.pkl")
+        mp = p.evaluation_results["model_performance"]
+        app_copies[name] = {"split": mp["split_description"],
+                            "validation": {"roc_auc": r4(mp["val_auc"]),
+                                           "average_precision": r4(mp["val_ap_score"]),
+                                           "positives": mp["val_positives"]},
+                            "calibration": "isotonic regression on the validation pairs"}
+
     commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
                             capture_output=True, text=True).stdout.strip()
     results = {
@@ -138,6 +162,12 @@ def main():
                          "the random split; 95% bootstrap intervals over test pairs (1,000 resamples). "
                          "Both models see the same splits and negatives."),
         "splits": out_splits,
+        "app_model": {
+            "version": "v3 attribute model",
+            "routing": ("drugs with known targets and target queries use the 'seen' copy; drugs "
+                        "with no known targets use the 'cold' copy"),
+            "copies": app_copies,
+        },
     }
     Path("results/results_attributes.json").write_text(json.dumps(results, indent=2) + "\n")
     print(json.dumps({k: {m: v[m]["roc_auc"] for m in ("graph_model", "attribute_model")}

@@ -5,6 +5,7 @@ import re
 
 import numpy as np
 import pandas as pd
+from rdkit import DataStructs
 
 # Carbon atom in SMILES: aromatic c, or C not starting a two-letter element (Cl, Ca, Cu, ...).
 _CARBON = re.compile(r"c|C(?![ladeflmnorsu])")
@@ -46,15 +47,10 @@ def _join(names):
     return ", ".join(names[:-1]) + " and " + names[-1]
 
 
-def evidence(G, node, partner, emb=None, max_names=2, label=None):
-    """One sentence of support in the data for a suggested link node-partner.
+STRUCTURE_CUTOFF = 0.5  # Tanimoto; fixed before looking at any suggestion
 
-    Uses the full known graph. Paths of length 3 first (other drugs that bind
-    the suggested target and share a target with the drug); otherwise the
-    node's nearest neighbours in the full-graph embedding that already link to
-    the partner; otherwise says no path exists. `label` maps a node id to the
-    name shown (for example a target's gene symbol).
-    """
+
+def _shared_partner_line(G, node, partner, name, max_names, label):
     is_drug = G.nodes[node]["node_type"] == "drug"
     node_partners = set(G.neighbors(node))
     support = []
@@ -62,20 +58,88 @@ def evidence(G, node, partner, emb=None, max_names=2, label=None):
         shared = len(node_partners & set(G.neighbors(other)))
         if other != node and shared:
             support.append((shared, other))
-    name = label(node) if label else (G.nodes[node].get("name") or node)
-    if support:
-        support.sort(key=lambda x: (-x[0], x[1]))
-        shown = _names(G, [o for _, o in support[:max_names]], label)
-        if len(support) > max_names:
-            who = f"{', '.join(shown)} and {len(support) - max_names} more"
-        else:
-            who = _join(shown)
-        verb = "shares" if len(support) == 1 else "share"
-        if is_drug:
-            return f"Bound by {who}, which {verb} targets with {name}."
-        return f"Binds {who}, which {verb} drugs with {name}."
+    if not support:
+        return None
+    support.sort(key=lambda x: (-x[0], x[1]))
+    shown = _names(G, [o for _, o in support[:max_names]], label)
+    if len(support) > max_names:
+        who = f"{', '.join(shown)} and {len(support) - max_names} more"
+    else:
+        who = _join(shown)
+    verb = "shares" if len(support) == 1 else "share"
+    if is_drug:
+        return f"Bound by {who}, which {verb} targets with {name}."
+    return f"Binds {who}, which {verb} drugs with {name}."
 
-    if emb is not None and node in emb.index:
+
+def _attribute_lines(G, attr, drug, target, node_is_drug, label):
+    """Candidate evidence lines: {"structure", "family", "class"} (each a sentence or None)."""
+    lab = label or (lambda n: G.nodes[n].get("name") or n)
+    it = "it" if node_is_drug else lab(target)
+    binders = [b for b in G.neighbors(target) if b != drug]
+    lines = {"structure": None, "family": None, "class": None}
+    if drug in attr.fps:
+        with_fp = [b for b in binders if b in attr.fps]
+        if with_fp:
+            sims = DataStructs.BulkTanimotoSimilarity(attr.fps[drug], [attr.fps[b] for b in with_fp])
+            i = int(np.argmax(sims))
+            if sims[i] >= STRUCTURE_CUTOFF:
+                lines["structure"] = (f"Structurally similar to {lab(with_fp[i])} "
+                                      f"(Tanimoto {sims[i]:.2f}), which binds {it}.")
+    if drug in attr.fps and lines["structure"] is None:
+        best = (0.0, None, None)
+        for f in sorted(attr.pfams.get(target, ())):
+            for t2 in sorted(attr.pfam_targets.get(f, ())):
+                if t2 == target or t2 not in G:
+                    continue
+                cands = [b for b in G.neighbors(t2) if b != drug and b in attr.fps]
+                if not cands:
+                    continue
+                sims = DataStructs.BulkTanimotoSimilarity(attr.fps[drug], [attr.fps[b] for b in cands])
+                j = int(np.argmax(sims))
+                if sims[j] > best[0]:
+                    best = (sims[j], cands[j], t2)
+        if best[0] >= STRUCTURE_CUTOFF:
+            lines["family"] = (f"Similar to {lab(best[1])} (Tanimoto {best[0]:.2f}), which binds "
+                            f"{lab(best[2])} in the same protein family.")
+    cls = attr.chem_class.get(drug, "")
+    if cls and binders:
+        n = sum(attr.chem_class.get(b, "") == cls for b in binders)
+        if n:
+            whose = "its" if node_is_drug else "the drug's"
+            lines["class"] = (f"{n} of {len(binders)} known binders share {whose} chemical class "
+                              f"({cls}).")
+    return lines
+
+
+def evidence(G, node, partner, emb=None, max_names=2, label=None, attr=None):
+    """One sentence of support in the data for a suggested link node-partner.
+
+    Uses the full known graph. With `attr` (an AttributeLinkPredictor), the
+    order is: structural similarity (Tanimoto >= 0.5) to a known binder of the
+    target; drugs that bind the target and share a target with the drug;
+    similarity to a binder of a target in the same Pfam family; binders in the
+    same chemical class. Without `attr`, shared-target drugs, then embedding
+    neighbours. Otherwise it says there is no such evidence. `label` maps a
+    node id to the name shown (for example a target's gene symbol).
+    """
+    is_drug = G.nodes[node]["node_type"] == "drug"
+    name = label(node) if label else (G.nodes[node].get("name") or node)
+    drug, target = (node, partner) if is_drug else (partner, node)
+
+    lines = {"structure": None, "family": None, "class": None}
+    if attr is not None:
+        lines = _attribute_lines(G, attr, drug, target, is_drug, label)
+        if lines["structure"]:
+            return lines["structure"]
+
+    shared = _shared_partner_line(G, node, partner, name, max_names, label)
+    if shared:
+        return shared
+    if lines["family"] or lines["class"]:
+        return lines["family"] or lines["class"]
+
+    if attr is None and emb is not None and node in emb.index:
         same_type = [n for n in emb.index if n in G and G.nodes[n]["node_type"] ==
                      G.nodes[node]["node_type"] and n != node]
         vecs = emb.loc[same_type].values
@@ -86,6 +150,8 @@ def evidence(G, node, partner, emb=None, max_names=2, label=None):
         if linked:
             kind = "drugs" if is_drug else "targets"
             return f"Among its 25 nearest {kind} in the embedding, {_join(_names(G, linked, label))} link to it."
+    if attr is not None:
+        return "No similar binder, shared-target path or shared class in the data; a weak suggestion."
     return "No shared-target path in the data; the score comes from degree and embedding position."
 
 

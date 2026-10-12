@@ -70,3 +70,38 @@ def test_attribute_features_use_message_graph_only():
                  == tables[0].set_index("drug_id").at[d, "smiles"]), None)
     if twin is not None:
         assert np.isclose(f["fp_max_binders"], 1.0)
+
+
+def test_vectorised_candidate_features_match_per_pair():
+    tables, da, ta = _tables()
+    p = AttributeLinkPredictor(da, ta, seed=3)
+    p.load_data(*tables)
+    p.split_edges("final")
+    p.fit()
+    p.validate()
+    p.calibrate("isotonic")
+    drug = sorted(d for d in p.drug_nodes if p.G.degree(d) > 0)[2]
+    cands = [t for t in sorted(p.target_nodes) if p.G.degree(t) > 0 and not p.G.has_edge(drug, t)]
+    fast = p._candidate_matrix(drug, cands)
+    slow = p._features([(drug, t) for t in cands])
+    assert np.allclose(fast, slow)
+    target = sorted(p.target_nodes)[4]
+    drugs = [d for d in sorted(p.drug_nodes) if not p.G.has_edge(d, target)][:20]
+    assert np.allclose(p._candidate_matrix(target, drugs), p._features([(d, target) for d in drugs]))
+
+
+def test_cold_copy_scores_a_drug_with_no_known_targets():
+    (drugs, targets, dti), da, ta = _tables()
+    lonely = drugs["drug_id"].iloc[-1]
+    dti = dti[dti["drug_id"] != lonely]
+    p = AttributeLinkPredictor(da, ta, seed=3)
+    p.load_data(drugs, targets, dti)
+    p.split_edges("final_cold")
+    assert p.G.degree(lonely) == 0 and not p.test_edges
+    for d in p.train_drugs:
+        assert p.train_graph.degree(d) == 0
+    p.fit()
+    p.validate()
+    scores = p.score_candidates(lonely)
+    assert len(scores) == sum(1 for t in p.target_nodes if p.G.degree(t) > 0)
+    assert all(0 <= s <= 1 for s in scores.values())

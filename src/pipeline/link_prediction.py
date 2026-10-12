@@ -51,6 +51,9 @@ SPLIT_DESCRIPTIONS = {
     "cold_drug": ("Whole-drug holdout: 20% of drugs with a known target have every edge removed "
                   "and are tested; another 20% are made cold the same way for training; negatives "
                   "use the same drug and a degree-matched target"),
+    "final_cold": ("All edges, whole-drug protocol: every edge of 25% of drugs hidden for "
+                   "training (a quarter of those drugs held back for validation and calibration); "
+                   "no test set"),
     "final": ("All edges, per-drug protocol: half the edges of 40% of drugs with 2+ targets "
               "are training positives (a quarter of those drugs held back for validation and "
               "calibration); every drug keeps at least one edge; no test set"),
@@ -150,6 +153,11 @@ class DTILinkPredictor:
             train, test = self._drug_holdout(edges)
         elif kind == "cold_drug":
             train, test = self._cold_drug(edges)
+        elif kind == "final_cold":
+            # App copy for drugs with no known targets: the whole-drug protocol
+            # without a test set (a quarter of drugs made cold for training).
+            train, _ = self._cold_drug(edges, drug_frac=0.25, test=False)
+            test = []
         else:
             raise ValueError(f"unknown split {kind!r}")
 
@@ -175,7 +183,7 @@ class DTILinkPredictor:
         the message graph and test set are unchanged and no random draws are
         consumed.
         """
-        if kind in ("drug_holdout", "final", "cold_drug"):
+        if kind in ("drug_holdout", "final", "cold_drug", "final_cold"):
             n_val = int(len(self.train_drugs) * frac)
             self.val_drugs = set(self.train_drugs[len(self.train_drugs) - n_val:])
             val = [e for e in train if e[0] in self.val_drugs]
@@ -184,7 +192,7 @@ class DTILinkPredictor:
         n_val = int(len(train) * frac)
         return train[:len(train) - n_val], train[len(train) - n_val:]
 
-    def _cold_drug(self, edges, drug_frac=0.2):
+    def _cold_drug(self, edges, drug_frac=0.2, test=True):
         """Whole-drug holdout: every edge of the test drugs (and of the training
         drugs, so training looks like testing) is removed from the message graph."""
         by_drug = {}
@@ -193,7 +201,10 @@ class DTILinkPredictor:
         eligible = sorted(by_drug)
         order = [eligible[i] for i in self.rng.permutation(len(eligible))]
         n = int(len(order) * drug_frac)
-        self.test_drugs, self.train_drugs = order[:n], order[n:2 * n]
+        if test:
+            self.test_drugs, self.train_drugs = order[:n], order[n:2 * n]
+        else:
+            self.test_drugs, self.train_drugs = [], order[:n]
         train = [e for d in self.train_drugs for e in by_drug[d]]
         test = [e for d in self.test_drugs for e in by_drug[d]]
         return train, test
@@ -230,7 +241,8 @@ class DTILinkPredictor:
         whose job is ranking candidate targets for one drug.
         """
         if scheme is None:
-            scheme = ("degree_matched" if self.split in ("drug_holdout", "final", "cold_drug")
+            scheme = ("degree_matched"
+                      if self.split in ("drug_holdout", "final", "cold_drug", "final_cold")
                       else "uniform")
         if scheme == "degree_matched":
             return self._degree_matched_negatives(positives, exclude)
@@ -494,6 +506,13 @@ class DTILinkPredictor:
                           if self.G.degree(n) > 0 and not self.G.has_edge(node, n)]
         if not candidates:
             return {}
+        X = self._candidate_matrix(node, candidates)
+        scores = self._calibrated(self.model.predict_proba(self.scaler.transform(X))[:, 1])
+        return dict(zip(candidates, scores))
+
+    def _candidate_matrix(self, node, candidates):
+        """Feature rows for (node, candidate) pairs, in extract_features_safe's column order."""
+        is_drug = node in self.drug_nodes
         g = self.train_graph
         dist = nx.single_source_shortest_path_length(g, node)
         k = g.degree(node)
@@ -517,10 +536,8 @@ class DTILinkPredictor:
         drug_mean = np.full(n, node_vec.mean()) if is_drug else cand_vecs.mean(axis=1)
         target_mean = cand_vecs.mean(axis=1) if is_drug else np.full(n, node_vec.mean())
         zeros = np.zeros(n)
-        X = np.column_stack([drug_deg, target_deg, zeros, drug_deg * target_deg, zeros, zeros,
-                             sp, zeros, drug_deg + target_deg, dot, drug_mean, target_mean])
-        scores = self._calibrated(self.model.predict_proba(self.scaler.transform(X))[:, 1])
-        return dict(zip(candidates, scores))
+        return np.column_stack([drug_deg, target_deg, zeros, drug_deg * target_deg, zeros, zeros,
+                                sp, zeros, drug_deg + target_deg, dot, drug_mean, target_mean])
 
     def save_model(self, filepath):
         """Save the trained model."""

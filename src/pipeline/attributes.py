@@ -77,11 +77,71 @@ class AttributeLinkPredictor(DTILinkPredictor):
         for t, fams in self.pfams.items():
             for f in fams:
                 self.pfam_targets.setdefault(f, set()).add(t)
+        # Index arrays for vectorised scoring of one drug against every target.
+        self.all_drugs = sorted(self.drug_nodes)
+        self.drug_pos = {d: i for i, d in enumerate(self.all_drugs)}
+        self.fp_drugs = [d for d in self.all_drugs if d in self.fps]
+        self.fp_pos = {d: i for i, d in enumerate(self.fp_drugs)}
+        self.fp_list = [self.fps[d] for d in self.fp_drugs]
 
     def split_edges(self, kind="random"):
         out = super().split_edges(kind)
         self._family_cache = {}
+        self._target_index = {}
         return out
+
+    def _index(self, t):
+        """Cached position arrays for a target's binders and family binders."""
+        if t not in self._target_index:
+            binders = self._binders(t)
+            fam = self._family_binders(t)
+            self._target_index[t] = (
+                np.array([self.drug_pos[b] for b in binders], dtype=int),
+                np.array([self.fp_pos[b] for b in binders if b in self.fp_pos], dtype=int),
+                np.array([self.fp_pos[b] for b in fam if b in self.fp_pos], dtype=int),
+            )
+        return self._target_index[t]
+
+    def _drug_attribute_matrix(self, d, targets):
+        """attribute_features(d, t) for many targets t, computed from vectors."""
+        n_all = len(self.all_drugs)
+        sims = (np.array(DataStructs.BulkTanimotoSimilarity(self.fps[d], self.fp_list))
+                if d in self.fps else None)
+        if sims is not None and d in self.fp_pos:
+            sims[self.fp_pos[d]] = -1.0          # never compare a drug with itself
+        cats = self.categories.get(d, frozenset())
+        atc = self.atc4.get(d, frozenset())
+
+        def jaccards(sets_of, own):
+            if not own:
+                return None
+            out = np.full(n_all, -1.0)
+            for i, o in enumerate(self.all_drugs):
+                other = sets_of.get(o)
+                if other and o != d:
+                    out[i] = len(own & other) / len(own | other)
+            return out
+
+        cat_j, atc_j = jaccards(self.categories, cats), jaccards(self.atc4, atc)
+        cls, sup = self.chem_class.get(d, ""), self.chem_superclass.get(d, "")
+        cls_eq = np.array([self.chem_class.get(o, "") == cls for o in self.all_drugs]) if cls else None
+        sup_eq = np.array([self.chem_superclass.get(o, "") == sup for o in self.all_drugs]) if sup else None
+        has = 1.0 if d in self.fps else 0.0
+        rows = []
+        for t in targets:
+            b_all, b_fp, f_fp = self._index(t)  # d is never a binder: candidates are unlinked
+            if sims is not None and b_fp.size:
+                s = sims[b_fp]
+                fp_max, fp_top3 = s.max(), np.sort(s)[-3:].mean()
+            else:
+                fp_max = fp_top3 = -1.0
+            fam_max = sims[f_fp].max() if sims is not None and f_fp.size else -1.0
+            cat = cat_j[b_all].max() if cat_j is not None and b_all.size else -1.0
+            at = atc_j[b_all].max() if atc_j is not None and b_all.size else -1.0
+            c_sh = float(cls_eq[b_all].mean()) if cls_eq is not None and b_all.size else -1.0
+            s_sh = float(sup_eq[b_all].mean()) if sup_eq is not None and b_all.size else -1.0
+            rows.append([fp_max, fp_top3, fam_max, cat, at, c_sh, s_sh, has])
+        return np.array(rows, dtype=float).reshape(len(targets), len(ATTRIBUTE_FEATURES))
 
     def _binders(self, t):
         return list(self.train_graph.neighbors(t)) if t in self.train_graph else []
@@ -129,8 +189,13 @@ class AttributeLinkPredictor(DTILinkPredictor):
             zip(FEATURE_NAMES + ATTRIBUTE_FEATURES, self.model.feature_importances_))
         return perf
 
-    def score_candidates(self, node, candidates=None):
-        raise NotImplementedError("the attribute model is evaluated only; the app uses the graph model")
+    def _candidate_matrix(self, node, candidates):
+        base = super()._candidate_matrix(node, candidates)
+        if node in self.drug_nodes:
+            attrs = self._drug_attribute_matrix(node, candidates)
+        else:
+            attrs = np.vstack([self.attribute_features(d, node) for d in candidates])
+        return np.hstack([base, attrs])
 
     def predict_interaction(self, drug_id, target_id):
         raw = self._raw_scores([(drug_id, target_id)])

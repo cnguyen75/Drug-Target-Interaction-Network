@@ -56,3 +56,24 @@ def test_evidence_mentions_l3_support():
             if text.startswith("Bound by"):
                 return
     raise AssertionError("expected at least one length-3 path in the synthetic graph")
+
+
+def test_attribute_evidence_lines():
+    from test_attributes import _tables
+    from pipeline.attributes import AttributeLinkPredictor
+
+    tables, da, ta = _tables()
+    p = AttributeLinkPredictor(da, ta, seed=3)
+    p.load_data(*tables)
+    G = p.G
+    seen = set()
+    for d in sorted(n for n in G if G.nodes[n]["node_type"] == "drug")[:30]:
+        for t in sorted(n for n in G if G.nodes[n]["node_type"] == "target"):
+            if G.has_edge(d, t):
+                continue
+            text = evidence(G, d, t, attr=p)
+            assert text.endswith(".")
+            seen.add(text.split(" ")[0])
+            # target-centred wording names the target rather than "it"
+            assert "binds it" not in evidence(G, t, d, attr=p)
+    assert "Structurally" in seen
