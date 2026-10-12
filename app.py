@@ -1,2583 +1,623 @@
-"""Enhanced Drug-Target Interaction Explorer with Plotly Network Graphs."""
+"""Drug-target interaction network: explore, predictions, evaluation, methods.
 
+    make run          # builds anything missing, then serves http://127.0.0.1:8050
+
+Every number shown comes from results/results.json, the parsed DrugBank tables
+or the trained model; nothing is typed in.
+"""
+
+import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import parse_qs, urlencode
 
 import dash
-from dash import dcc, html, Input, Output, State, callback_context
-import plotly.graph_objects as go
-import plotly.express as px
 import pandas as pd
-import numpy as np
-import pickle
-import networkx as nx
-from plotly.subplots import make_subplots
+import plotly.graph_objects as go
+from dash import Input, Output, State, ctx, dcc, html
 
-# Add src to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
 from config import DRUGS_FP, DTI_FP, TARGETS_FP
-from pipeline.build_graph import most_connected
+from pipeline.build_graph import build_bipartite_graph
+from pipeline.explore import edge_table, evidence, featured_mask, neighbourhood, radial_layout
 from pipeline.link_prediction import DTILinkPredictor
-from pipeline.drug_repurposing import DrugRepurposer
-from pipeline.advanced_analytics import DrugRepurposingAnalytics, NetworkAnalytics, PredictiveInsights
 
-# Initialize Dash app
-app = dash.Dash(__name__, title="DTI Explorer Pro - Plotly Edition")
-app.config.suppress_callback_exceptions = True
+ROOT = Path(__file__).parent
+RESULTS_FP = ROOT / "results" / "results.json"
+MODEL_FP = ROOT / "models" / "link_prediction_model.pkl"
+PREDICTIONS_FP = ROOT / "models" / "predictions.parquet"
+EMBEDDINGS_FP = ROOT / "data" / "embeddings_full.parquet"
 
-# Load data and models
-print("Loading data and models...")
-try:
-    # Load full DrugBank database
-    full_drugs_fp = DRUGS_FP
-    full_targets_fp = TARGETS_FP
-    full_dti_fp = DTI_FP
-    
-    if not os.path.exists(full_drugs_fp):
-        print("Full DrugBank database not found!")
-        print("Please ensure drugs_full.parquet, targets_full.parquet, and dti_full.parquet exist in the data_raw/ directory.")
-        sys.exit(1)
-    
-    print("Loading full DrugBank database...")
-    drugs_df = pd.read_parquet(full_drugs_fp)
-    targets_df = pd.read_parquet(full_targets_fp)
-    dti_df = pd.read_parquet(full_dti_fp)
-    
-    # Build graph exactly like training script (include ALL drugs and targets)
-    print("Building graph from full database...")
-    G = nx.Graph()
-    
-    print(f"Loading: {len(drugs_df):,} drugs, {len(targets_df):,} targets, {len(dti_df):,} interactions")
-    
-    # Add ALL drug nodes to graph (like training script)
-    for _, drug in drugs_df.iterrows():
-        G.add_node(drug['drug_id'], node_type='drug', name=drug['name'])
-    
-    # Add ALL target nodes to graph (like training script)  
-    for _, target in targets_df.iterrows():
-        G.add_node(target['target_id'], node_type='target', name=target['name'])
-    
-    # Add edges
-    for _, interaction in dti_df.iterrows():
-        G.add_edge(interaction['drug_id'], interaction['target_id'])
-    
-    print(f"Built graph: {len(G.nodes()):,} total nodes ({len([n for n, d in G.nodes(data=True) if d.get('node_type') == 'drug']):,} drugs, {len([n for n, d in G.nodes(data=True) if d.get('node_type') == 'target']):,} targets)")
-    print(f"Graph edges: {len(G.edges()):,} interactions")
-    print(f"Note: Graph includes all entities (ML models will internally filter to connected nodes)")
-    
-    # Load embeddings for advanced analytics
-    embeddings_df = None
-    embeddings_path = "data/embeddings_full.parquet"
-    print(f"Checking for embeddings at: {os.path.abspath(embeddings_path)}")
-    if os.path.exists(embeddings_path):
-        print("Loading embeddings for advanced analytics...")
-        try:
-            embeddings_df = pd.read_parquet(embeddings_path)
-            if "node_id" in embeddings_df.columns:
-                embeddings_df = embeddings_df.set_index("node_id")
-            print(f"Loaded embeddings: {len(embeddings_df):,} nodes")
-        except Exception as e:
-            print(f"Error loading embeddings: {e}")
-            embeddings_df = None
-    else:
-        print("Warning: Embeddings file not found. Advanced analytics will not be available.")
-        print("To enable advanced analytics, run: python3 train_ml_models.py")
-    
-    # Initialize ML models
-    print("Loading pre-trained ML models...")
-    link_predictor = None
-    repurposer_obj = None
-    
-    try:
-        # Load pre-trained models from models directory
-        models_dir = Path("models")
-        
-        if not models_dir.exists():
-            print("Models directory not found!")
-            print("Please run 'python3 train_ml_models.py' to train models first.")
-            sys.exit(1)
-        
-        # Load link prediction model
-        link_model_path = models_dir / "link_prediction_model.pkl"
-        if not link_model_path.exists():
-            print("Link prediction model not found!")
-            print("Please run 'python3 train_ml_models.py' to train models first.")
-            sys.exit(1)
-        
-        print("Loading pre-trained link prediction model...")
-        with open(link_model_path, 'rb') as f:
-            link_predictor = pickle.load(f)
-        print("Link prediction model loaded!")
-        
-        # Load drug repurposing model
-        repurposer_path = models_dir / "drug_repurposing_model.pkl"
-        if not repurposer_path.exists():
-            print("Drug repurposing model not found!")
-            print("Please run 'python3 train_ml_models.py' to train models first.")
-            sys.exit(1)
-        
-        print("Loading pre-trained drug repurposing model...")
-        with open(repurposer_path, 'rb') as f:
-            repurposer_obj = pickle.load(f)
-        print("Drug repurposing model loaded!")
-        
-        print("All pre-trained models loaded successfully!")
-            
-    except Exception as e:
-        print(f"Error loading pre-trained models: {e}")
-        print("Please run 'python3 train_ml_models.py' to train models first.")
-        sys.exit(1)
-        
-except Exception as e:
-    print(f"Error loading data: {e}")
-    print("Please ensure the full DrugBank database files exist in data_raw/ directory.")
-    sys.exit(1)
+INK, SECONDARY, RULE, CARD = "#231F1B", "#3D372F", "#B3A992", "#F6F2E8"
+BLUE, ORANGE, PURPLE, BASELINE = "#1F6FB5", "#C0601F", "#7A4E9E", "#8A8171"
 
-def create_network_figure(G, selected_node=None, max_nodes=100, show_labels=False, walks=2):
-    """Create a professional Plotly network figure with smart text handling."""
-    if G is None or len(G.nodes()) == 0:
-        return go.Figure().add_annotation(
-            text="No network data available",
-            xref="paper", yref="paper",
-            x=0.5, y=0.5, showarrow=False,
-            font=dict(size=16, color="#7f8c8d")
-        )
-    
-    # Get subgraph around selected node or sample
-    if selected_node and selected_node in G:
-        # Get nodes within specified walks of selected node
-        nodes_to_include = {selected_node}
-        for _ in range(walks):
-            new_nodes = set()
-            for node in nodes_to_include:
-                neighbors = list(G.neighbors(node))
-                new_nodes.update(neighbors)
-            nodes_to_include.update(new_nodes)
-        
-        # Limit to max_nodes
-        if len(nodes_to_include) > max_nodes:
-            nodes_to_include = set(list(nodes_to_include)[:max_nodes])
-        
-        subgraph = G.subgraph(nodes_to_include)
-        # Don't force labels on - respect the checkbox setting
-    else:
-        # Sample a balanced subgraph with both drugs and targets
-        if len(G.nodes()) > max_nodes:
-            # Get drug and target nodes
-            drug_nodes = [n for n, d in G.nodes(data=True) if d.get("node_type") == "drug"]
-            target_nodes = [n for n, d in G.nodes(data=True) if d.get("node_type") == "target"]
-            
-            # Sample balanced number of drugs and targets
-            max_drugs = max_nodes // 2
-            max_targets = max_nodes - max_drugs
-            
-            sample_drugs = drug_nodes[:max_drugs] if len(drug_nodes) > max_drugs else drug_nodes
-            sample_targets = target_nodes[:max_targets] if len(target_nodes) > max_targets else target_nodes
-            
-            # Get all neighbors of sampled nodes to show connections
-            all_neighbors = set()
-            for node in sample_drugs + sample_targets:
-                neighbors = list(G.neighbors(node))
-                all_neighbors.update(neighbors)
-            
-            # Combine sampled nodes with their neighbors
-            nodes_to_include = set(sample_drugs + sample_targets) | all_neighbors
-            
-            # Limit to max_nodes
-            if len(nodes_to_include) > max_nodes:
-                nodes_to_include = set(list(nodes_to_include)[:max_nodes])
-            
-            subgraph = G.subgraph(nodes_to_include)
-        else:
-            subgraph = G
-    
-    # Get node positions using spring layout with better parameters
-    pos = nx.spring_layout(subgraph, k=2, iterations=100, seed=42)
-    
-    # Separate drug and target nodes
-    drug_nodes = []
-    target_nodes = []
-    drug_x, drug_y = [], []
-    target_x, target_y = [], []
-    drug_names, target_names = [], []
-    drug_hover_text, target_hover_text = [], []
-    drug_sizes, target_sizes = [], []
-    
-    for node in subgraph.nodes():
-        node_data = subgraph.nodes[node]
-        node_type = node_data.get('node_type', 'unknown')
-        name = node_data.get('name', str(node))
-        degree = subgraph.degree(node)
-        
-        x, y = pos[node]
-        
-        # Create detailed hover text with more information
-        hover_text = f"""<b>{name}</b><br><b>ID:</b> {node}<br><b>Type:</b> {node_type.title()}<br><b>Connections:</b> {degree}<br><b>Centrality:</b> {degree/len(subgraph.nodes()):.3f}"""
-        
-        # Add type-specific information to hover
-        if node_type == 'drug':
-            # Try to get drug info for hover
-            drug_info = drugs_df[drugs_df['drug_id'] == node]
-            if not drug_info.empty:
-                drug_row = drug_info.iloc[0]
-                hover_text += f"<br><b>Status:</b> {'Approved' if drug_row['approved'] else 'Experimental'}"
-                hover_text += f"<br><b>Type:</b> {drug_row['type']}"
-        elif node_type == 'target':
-            # Try to get target info for hover
-            target_info = targets_df[targets_df['target_id'] == node]
-            if not target_info.empty:
-                target_row = target_info.iloc[0]
-                hover_text += f"<br><b>Organism:</b> {target_row['organism']}"
-                hover_text += f"<br><b>Human:</b> {'Yes' if target_row['is_human'] else 'No'}"
-        
-        # Size nodes based on degree (with limits)
-        node_size = min(max(degree * 2 + 8, 8), 25)
-        
-        if node_type == 'drug':
-            drug_nodes.append(node)
-            drug_x.append(x)
-            drug_y.append(y)
-            drug_names.append(name)
-            drug_hover_text.append(hover_text)
-            drug_sizes.append(node_size)
-        else:
-            target_nodes.append(node)
-            target_x.append(x)
-            target_y.append(y)
-            target_names.append(name)
-            target_hover_text.append(hover_text)
-            target_sizes.append(node_size)
-    
-    # Create edge traces
-    edge_x, edge_y = [], []
-    
-    for edge in subgraph.edges():
-        x0, y0 = pos[edge[0]]
-        x1, y1 = pos[edge[1]]
-        edge_x.extend([x0, x1, None])
-        edge_y.extend([y0, y1, None])
-    
-    # Create the figure
-    fig = go.Figure()
-    
-    # Add edges with professional styling
-    fig.add_trace(go.Scatter(
-        x=edge_x, y=edge_y,
-        line=dict(width=0.8, color='#95a5a6'),
-        hoverinfo='none',
-        mode='lines',
-        showlegend=False,
-        opacity=0.6
-    ))
-    
-    # Add drug nodes with professional styling
-    if drug_x:
-        fig.add_trace(go.Scatter(
-            x=drug_x, y=drug_y,
-            mode='markers+text' if show_labels else 'markers',
-            hoverinfo='text',
-            text=drug_names if show_labels else None,
-            textposition="top center",
-            hovertext=drug_hover_text,
-            marker=dict(
-                size=drug_sizes,
-                color='#e74c3c',
-                line=dict(width=1.5, color='#c0392b'),
-                opacity=0.9
-            ),
-            name='Drugs',
-            textfont=dict(size=9, color='#2c3e50'),
-            hovertemplate='%{hovertext}<extra></extra>'
-        ))
-    
-    # Add target nodes with professional styling
-    if target_x:
-        fig.add_trace(go.Scatter(
-            x=target_x, y=target_y,
-            mode='markers+text' if show_labels else 'markers',
-            hoverinfo='text',
-            text=target_names if show_labels else None,
-            textposition="top center",
-            hovertext=target_hover_text,
-            marker=dict(
-                size=target_sizes,
-                color='#3498db',
-                line=dict(width=1.5, color='#2980b9'),
-                opacity=0.9
-            ),
-            name='Targets',
-            textfont=dict(size=9, color='#2c3e50'),
-            hovertemplate='%{hovertext}<extra></extra>'
-        ))
-    
-    # Highlight selected node with professional styling
-    if selected_node and selected_node in subgraph:
-        sel_x, sel_y = pos[selected_node]
-        node_data = subgraph.nodes[selected_node]
-        node_name = node_data.get('name', selected_node)
-        sel_degree = subgraph.degree(selected_node)
-        sel_size = min(max(sel_degree * 2 + 12, 15), 30)
-        
-        # Add highlighted node
-        fig.add_trace(go.Scatter(
-            x=[sel_x], y=[sel_y],
-            mode='markers+text',
-            text=[node_name],
-            textposition="top center",
-            marker=dict(
-                size=sel_size,
-                color='#f39c12',
-                line=dict(width=3, color='#e67e22'),
-                opacity=1.0
-            ),
-            name='Selected',
-            showlegend=False,
-            textfont=dict(size=11, color='#2c3e50', family="Arial Black"),
-            hovertemplate=f'<b>{node_name}</b><br>Selected Node<extra></extra>'
-        ))
-    
-    # Professional layout
-    fig.update_layout(
-        title=dict(
-            text=f"Drug-Target Interaction Network",
-            x=0.5,
-            xanchor='center',
-            font=dict(size=20, color='#2c3e50', family="Arial")
-        ),
-        showlegend=True,
-        legend=dict(
-            yanchor="top",
-            y=0.99,
-            xanchor="left",
-            x=0.01,
-            bgcolor='rgba(255,255,255,0.8)',
-            bordercolor='#bdc3c7',
-            borderwidth=1
-        ),
-        hovermode='closest',
-        margin=dict(b=20, l=5, r=5, t=60),
-        xaxis=dict(
-            showgrid=False, 
-            zeroline=False, 
-            showticklabels=False,
-            range=[-1.1, 1.1]
-        ),
-        yaxis=dict(
-            showgrid=False, 
-            zeroline=False, 
-            showticklabels=False,
-            range=[-1.1, 1.1]
-        ),
-        plot_bgcolor='#f8f9fa',
-        paper_bgcolor='white',
-        height=650,
-        font=dict(family="Arial", size=12, color='#2c3e50')
-    )
-    
-    # Add subtitle with statistics
-    fig.add_annotation(
-        text=f"Subgraph: {len(subgraph.nodes())} nodes, {len(subgraph.edges())} edges",
-        xref="paper", yref="paper",
-        x=0.5, y=0.95,
-        showarrow=False,
-        font=dict(size=12, color='#7f8c8d'),
-        bgcolor='rgba(255,255,255,0.8)',
-        bordercolor='#bdc3c7',
-        borderwidth=1
-    )
-    
-    return fig
-
-def create_3d_network_figure(G, selected_node=None, max_nodes=50, walks=2):
-    """Create a 3D Plotly network figure."""
-    if G is None or len(G.nodes()) == 0:
-        return go.Figure().add_annotation(
-            text="No network data available",
-            xref="paper", yref="paper",
-            x=0.5, y=0.5, showarrow=False
-        )
-    
-    # Get subgraph around selected node or sample
-    if selected_node and selected_node in G:
-        nodes_to_include = {selected_node}
-        for _ in range(walks):  # Use walks parameter
-            new_nodes = set()
-            for node in nodes_to_include:
-                neighbors = list(G.neighbors(node))
-                new_nodes.update(neighbors)
-            nodes_to_include.update(new_nodes)
-        
-        if len(nodes_to_include) > max_nodes:
-            nodes_to_include = set(list(nodes_to_include)[:max_nodes])
-        
-        subgraph = G.subgraph(nodes_to_include)
-    else:
-        # Sample a balanced subgraph with both drugs and targets
-        if len(G.nodes()) > max_nodes:
-            # Get drug and target nodes
-            drug_nodes = [n for n, d in G.nodes(data=True) if d.get("node_type") == "drug"]
-            target_nodes = [n for n, d in G.nodes(data=True) if d.get("node_type") == "target"]
-            
-            # Sample balanced number of drugs and targets
-            max_drugs = max_nodes // 2
-            max_targets = max_nodes - max_drugs
-            
-            sample_drugs = drug_nodes[:max_drugs] if len(drug_nodes) > max_drugs else drug_nodes
-            sample_targets = target_nodes[:max_targets] if len(target_nodes) > max_targets else target_nodes
-            
-            # Get all neighbors of sampled nodes to show connections
-            all_neighbors = set()
-            for node in sample_drugs + sample_targets:
-                neighbors = list(G.neighbors(node))
-                all_neighbors.update(neighbors)
-            
-            # Combine sampled nodes with their neighbors
-            nodes_to_include = set(sample_drugs + sample_targets) | all_neighbors
-            
-            # Limit to max_nodes
-            if len(nodes_to_include) > max_nodes:
-                nodes_to_include = set(list(nodes_to_include)[:max_nodes])
-            
-            subgraph = G.subgraph(nodes_to_include)
-        else:
-            subgraph = G
-    
-    # Get 3D node positions
-    pos = nx.spring_layout(subgraph, k=2, iterations=50, dim=3)
-    
-    # Separate nodes by type
-    drug_nodes = []
-    target_nodes = []
-    drug_x, drug_y, drug_z = [], [], []
-    target_x, target_y, target_z = [], [], []
-    drug_names, target_names = [], []
-    
-    for node in subgraph.nodes():
-        node_data = subgraph.nodes[node]
-        node_type = node_data.get('node_type', 'unknown')
-        name = node_data.get('name', str(node))
-        
-        x, y, z = pos[node]
-        
-        if node_type == 'drug':
-            drug_nodes.append(node)
-            drug_x.append(x)
-            drug_y.append(y)
-            drug_z.append(z)
-            drug_names.append(name)
-        else:
-            target_nodes.append(node)
-            target_x.append(x)
-            target_y.append(y)
-            target_z.append(z)
-            target_names.append(name)
-    
-    # Create edge traces
-    edge_x, edge_y, edge_z = [], [], []
-    for edge in subgraph.edges():
-        x0, y0, z0 = pos[edge[0]]
-        x1, y1, z1 = pos[edge[1]]
-        edge_x.extend([x0, x1, None])
-        edge_y.extend([y0, y1, None])
-        edge_z.extend([z0, z1, None])
-    
-    # Create the figure
-    fig = go.Figure()
-    
-    # Add edges
-    fig.add_trace(go.Scatter3d(
-        x=edge_x, y=edge_y, z=edge_z,
-        line=dict(width=1, color='#888'),
-        hoverinfo='none',
-        mode='lines',
-        showlegend=False
-    ))
-    
-    # Add drug nodes
-    if drug_x:
-        fig.add_trace(go.Scatter3d(
-            x=drug_x, y=drug_y, z=drug_z,
-            mode='markers',
-            hoverinfo='text',
-            text=drug_names,
-            marker=dict(
-                size=8,
-                color='#e74c3c',
-                line=dict(width=2, color='#c0392b')
-            ),
-            name='Drugs'
-        ))
-    
-    # Add target nodes
-    if target_x:
-        fig.add_trace(go.Scatter3d(
-            x=target_x, y=target_y, z=target_z,
-            mode='markers',
-            hoverinfo='text',
-            text=target_names,
-            marker=dict(
-                size=6,
-                color='#3498db',
-                line=dict(width=2, color='#2980b9')
-            ),
-            name='Targets'
-        ))
-    
-    # Update layout
-    fig.update_layout(
-        title=f"3D Drug-Target Network ({len(subgraph.nodes())} nodes, {len(subgraph.edges())} edges)",
-        scene=dict(
-            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-            zaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-            bgcolor='white'
-        ),
-        margin=dict(l=0, r=0, b=0, t=30),
-        height=600
-    )
-    
-    return fig
-
-# Create main layout
-app.layout = html.Div([
-    # URL component for callbacks
-    dcc.Location(id='url', refresh=False),
-
-    # Professional Header
-    html.Div([
-        html.Div([
-            html.H1("DTI Explorer Pro", 
-                    style={
-                        "textAlign": "center", 
-                        "marginBottom": "5px", 
-                        "color": "#2c3e50",
-                        "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-                        "fontWeight": "300",
-                        "fontSize": "28px",
-                        "letterSpacing": "1px"
-                    }),
-            html.P("Advanced Drug-Target Interaction Analysis Platform", 
-                   style={
-                       "textAlign": "center", 
-                       "color": "#5a6c7d", 
-                       "marginBottom": "10px",
-                       "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-                       "fontSize": "14px",
-                       "fontWeight": "400"
-                   }),
-            html.P(f"Full DrugBank Database: {len(drugs_df):,} drugs | {len(targets_df):,} targets | {len(dti_df):,} interactions", 
-                   style={
-                       "textAlign": "center", 
-                       "color": "#34495e", 
-                       "marginBottom": "20px",
-                       "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-                       "fontSize": "12px",
-                       "fontWeight": "500"
-                   })
-        ])
-    ], style={
-        "background": "linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)",
-        "padding": "25px", 
-        "borderRadius": "8px", 
-        "marginBottom": "20px",
-        "boxShadow": "0 2px 10px rgba(0, 0, 0, 0.1)",
-        "border": "1px solid #dee2e6"
-    }),
-    
-    # Main tabs
-    dcc.Tabs([
-        # Network Visualization Tab
-        dcc.Tab(label="Network Explorer", children=[
-            html.Div([
-                # Left panel - Controls
-                html.Div([
-                    html.H3("Search & Controls", 
-                            style={
-                                "color": "#2c3e50", 
-                                "marginBottom": "20px",
-                                "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-                                "fontWeight": "600",
-                                "fontSize": "16px",
-                                "borderBottom": "2px solid #3498db",
-                                "paddingBottom": "10px"
-                            }),
-                    
-                    # Search dropdown
-                    html.Label("Search for drug or target:"),
-                    dcc.Dropdown(
-                        id="search_dropdown",
-                        placeholder="Type to search...",
-                        style={"marginBottom": "15px"}
-                    ),
-                    
-                    # Node type filter
-                    html.Label("Node Type:"),
-                    dcc.RadioItems(
-                        id="node_type_filter",
-                        options=[
-                            {"label": "Drugs", "value": "drug"},
-                            {"label": "Targets", "value": "target"},
-                            {"label": "Both", "value": "both"}
-                        ],
-                        value="both",
-                        style={"marginBottom": "15px"}
-                    ),
-                    
-                    # Visualization type
-                    html.Label("Visualization:"),
-                    dcc.RadioItems(
-                        id="viz_type",
-                        options=[
-                            {"label": "2D Network", "value": "2d"},
-                            {"label": "3D Network", "value": "3d"}
-                        ],
-                        value="2d",
-                        style={"marginBottom": "15px"}
-                    ),
-                    
-
-                    
-                    # Max nodes slider
-                    html.Label("Max Nodes:"),
-                    dcc.Slider(
-                        id="max_nodes_slider",
-                        min=20,
-                        max=200,
-                        step=20,
-                        value=100,
-                        marks={i: str(i) for i in [20, 50, 100, 150, 200]}
-                    ),
-                    html.Div(style={"marginBottom": "15px"}),  # Spacing
-                    
-                    # Walks slider for graph exploration
-                    html.Label("Graph Walks:"),
-                    dcc.Slider(
-                        id="walks_slider",
-                        min=1,
-                        max=5,
-                        step=1,
-                        value=2,
-                        marks={i: str(i) for i in [1, 2, 3, 4, 5]},
-                        tooltip={"placement": "bottom", "always_visible": True}
-                    ),
-                    html.P("Network exploration depth from selected node", 
-                           style={"fontSize": "11px", "color": "#7f8c8d", "margin": "5px 0"}),
-                    html.Div(style={"marginBottom": "15px"}),  # Spacing
-                    
-                    # Network statistics
-                    html.Div([
-                        html.H4("Network Stats", style={"color": "#2c3e50", "marginBottom": "10px"}),
-                        html.Div(id="network_stats", style={"fontSize": "12px"})
-                    ], style={"marginTop": "20px", "padding": "15px", "backgroundColor": "#f8f9fa", "borderRadius": "5px"}),
-                    
-                    # Selected node details
-                    html.Div([
-                        html.H4("Selected Node", style={"color": "#2c3e50", "marginBottom": "10px"}),
-                        html.Div(id="selected_node_details", style={"fontSize": "12px"})
-                    ], style={"marginTop": "20px", "padding": "15px", "backgroundColor": "#e8f5e8", "borderRadius": "5px"})
-                    
-                ], style={
-                    "width": "25%", 
-                    "float": "left", 
-                    "padding": "25px",
-                    "backgroundColor": "#f8f9fa",
-                    "borderRadius": "15px",
-                    "boxShadow": "0 4px 6px rgba(0, 0, 0, 0.1)",
-                    "border": "1px solid #e9ecef",
-                    "marginRight": "20px"
-                }),
-                
-                # Right panel - Visualization
-                html.Div([
-                    # Network graph
-                    dcc.Graph(
-                        id="network_graph",
-                        style={
-                            "height": "650px", 
-                            "border": "2px solid #e9ecef", 
-                            "borderRadius": "15px",
-                            "boxShadow": "0 4px 6px rgba(0, 0, 0, 0.1)",
-                            "backgroundColor": "white"
-                        }
-                    ),
-                    
-                    # Network metrics
-                    html.Div([
-                                        html.H4("Network Statistics", 
-                        style={
-                            "color": "#2c3e50",
-                            "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-                            "fontWeight": "600",
-                            "marginBottom": "15px",
-                            "borderBottom": "2px solid #3498db",
-                            "paddingBottom": "10px"
-                        }),
-                        html.Div(id="network_metrics", 
-                                style={
-                                    "display": "grid", 
-                                    "gridTemplateColumns": "1fr 1fr 1fr 1fr", 
-                                    "gap": "15px",
-                                    "fontFamily": "Arial, sans-serif"
-                                })
-                    ], style={
-                        "marginTop": "20px", 
-                        "padding": "20px", 
-                        "backgroundColor": "#f8f9fa", 
-                        "borderRadius": "15px",
-                        "boxShadow": "0 2px 4px rgba(0, 0, 0, 0.05)",
-                        "border": "1px solid #e9ecef"
-                    })
-                    
-                ], style={"width": "75%", "float": "right", "padding": "20px"})
-                
-            ], style={"display": "flex", "clear": "both"})
-        ]),
-        
-        # Machine Learning Tab
-        dcc.Tab(label="ML Insights", children=[
-            html.Div([
-                # Left panel - ML Controls
-                html.Div([
-                    html.H3("Machine Learning", 
-                            style={
-                                "color": "#2c3e50", 
-                                "marginBottom": "15px",
-                                "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-                                "fontWeight": "600",
-                                "fontSize": "16px"
-                            }),
-                    
-                    # ML feature selection
-                    html.Label("ML Feature:"),
-                    dcc.Dropdown(
-                        id="ml_feature_dropdown",
-                        options=[
-                            {"label": "Link Prediction", "value": "link_prediction"},
-                            {"label": "Drug Repurposing", "value": "drug_repurposing"},
-                            {"label": "Network Analysis", "value": "similarity"}
-                        ],
-                        value="link_prediction",
-                        style={"marginBottom": "15px"}
-                    ),
-                    
-                    # Drug selection for ML
-                    html.Label("Select Drug:"),
-                    dcc.Dropdown(
-                        id="ml_drug_dropdown",
-                        placeholder="Choose a drug...",
-                        style={"marginBottom": "15px"}
-                    ),
-                    
-                    # Target selection for ML
-                    html.Label("Select Target:"),
-                    dcc.Dropdown(
-                        id="ml_target_dropdown",
-                        placeholder="Choose a target...",
-                        style={"marginBottom": "15px"}
-                    ),
-                    
-                    # Action button with loading state
-                    html.Div([
-                        html.Button(
-                            "Run Analysis",
-                            id="run_ml_button",
-                            n_clicks=0,
-                            style={
-                                "backgroundColor": "#27ae60",
-                                "color": "white",
-                                "border": "none",
-                                "padding": "10px 20px",
-                                "borderRadius": "5px",
-                                "cursor": "pointer",
-                                "marginBottom": "15px",
-                                "width": "100%"
-                            }
-                        ),
-                        # Loading spinner
-                        dcc.Loading(
-                            id="ml_loading",
-                            type="circle",
-                            children=[
-                                html.Div(id="ml_loading_output")
-                            ],
-                            style={"marginTop": "10px"}
-                        )
-                    ]),
-                    
-                    # ML Status and Progress
-                    html.Div([
-                        html.Div(id="ml_status", style={"fontSize": "12px", "color": "#7f8c8d", "marginBottom": "10px"}),
-                        # Progress bar
-                        html.Div([
-                            html.Div(
-                                id="ml_progress_bar",
-                                style={
-                                    "width": "0%",
-                                    "height": "20px",
-                                    "backgroundColor": "#3498db",
-                                    "borderRadius": "10px",
-                                    "transition": "width 0.3s ease"
-                                }
-                            )
-                        ], style={
-                            "width": "100%",
-                            "height": "20px",
-                            "backgroundColor": "#ecf0f1",
-                            "borderRadius": "10px",
-                            "marginBottom": "10px",
-                            "overflow": "hidden"
-                        }),
-                        # Progress text
-                        html.Div(id="ml_progress_text", style={"fontSize": "11px", "color": "#3498db"})
-                    ])
-                    
-                ], style={"width": "25%", "float": "left", "padding": "20px"}),
-                
-                # Right panel - ML Results
-                html.Div([
-                    # ML Results
-                    html.Div(id="ml_results", style={"padding": "20px", "backgroundColor": "#f8f9fa", "borderRadius": "10px", "minHeight": "400px"}),
-                    
-                    # ML Performance Metrics
-                    html.Div(id="ml_metrics", style={"marginTop": "20px", "padding": "15px", "backgroundColor": "#ecf0f1", "borderRadius": "10px"})
-                    
-                ], style={"width": "75%", "float": "right", "padding": "20px"})
-                
-            ], style={"display": "flex", "clear": "both"})
-        ]),
-        
-        # Advanced Analytics Tab
-        dcc.Tab(label="Advanced Analytics", children=[
-            html.Div([
-                # Left panel - Analytics Controls
-                html.Div([
-                    html.H3("Discovery Analytics", 
-                            style={
-                                "color": "#2c3e50", 
-                                "marginBottom": "20px",
-                                "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-                                "fontWeight": "600",
-                                "fontSize": "16px",
-                                "borderBottom": "2px solid #3498db",
-                                "paddingBottom": "10px"
-                            }),
-                    
-                    # Analytics type selection
-                    html.Label("Analysis Type:"),
-                    dcc.Dropdown(
-                        id="analytics_type_dropdown",
-                        options=[
-                            {"label": "Drug Discovery Insights", "value": "discovery"},
-                            {"label": "Network Communities", "value": "communities"},
-                            {"label": "Drug Combination Analysis", "value": "combinations"}
-                        ],
-                        value="discovery",
-                        style={"marginBottom": "15px"}
-                    ),
-                    
-                    # Drug selection for analytics
-                    html.Label("Select Drug (Optional - for focused analysis):"),
-                    dcc.Dropdown(
-                        id="analytics_drug_dropdown",
-                        placeholder="Choose a drug for focused analysis, or leave empty for general insights...",
-                        style={"marginBottom": "15px"}
-                    ),
-                    
-                    # Action button
-                    html.Button(
-                        "Run Discovery Analysis",
-                        id="run_analytics_button",
-                        n_clicks=0,
-                        style={
-                            "backgroundColor": "#9b59b6",
-                            "color": "white",
-                            "border": "none",
-                            "padding": "10px 20px",
-                            "borderRadius": "5px",
-                            "cursor": "pointer",
-                            "marginBottom": "15px",
-                            "width": "100%"
-                        }
-                    ),
-                    
-                    # Analytics status
-                    html.Div(id="analytics_status", children="Ready to run analysis", style={"fontSize": "12px", "color": "#7f8c8d", "marginBottom": "10px"})
-                    
-                ], style={"width": "25%", "float": "left", "padding": "20px"}),
-                
-                # Right panel - Analytics Results with Loading
-                html.Div([
-                    # Loading wrapper for analytics
-                    dcc.Loading(
-                        id="analytics_loading",
-                        type="circle",
-                        children=[
-                            # Analytics Results
-                            html.Div(id="analytics_results", children="Select an analysis type and click 'Run Discovery Analysis' to get started.", style={"padding": "20px", "backgroundColor": "#f8f9fa", "borderRadius": "10px", "minHeight": "400px", "color": "#7f8c8d", "fontStyle": "italic"}),
-                            
-                            # Analytics Visualizations
-                            html.Div(id="analytics_visualizations", style={"marginTop": "20px"})
-                        ],
-                        style={"marginTop": "20px"}
-                    ),
-                    
-                    # Progress indicator
-                    html.Div(id="analytics_progress", 
-                            style={
-                                "marginTop": "15px",
-                                "display": "none",
-                                "padding": "10px",
-                                "backgroundColor": "#e8f4fd",
-                                "borderRadius": "5px",
-                                "border": "1px solid #3498db"
-                            })
-                    
-                ], style={"width": "75%", "float": "right", "padding": "20px"})
-                
-            ], style={"display": "flex", "clear": "both"})
-        ]),
-        
-        # ML Evaluation Tab
-        dcc.Tab(label="ML Evaluation", children=[
-            html.Div([
-                # Left panel - Evaluation Controls
-                html.Div([
-                    html.H3("Model Evaluation", 
-                            style={
-                                "color": "#2c3e50", 
-                                "marginBottom": "20px",
-                                "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-                                "fontWeight": "600",
-                                "fontSize": "16px",
-                                "borderBottom": "2px solid #3498db",
-                                "paddingBottom": "10px"
-                            }),
-                    
-                    # Evaluation metrics summary
-                    html.Div([
-                        html.H4("Performance Summary", style={"color": "#2c3e50", "marginBottom": "15px"}),
-                        html.Div(id="eval_summary", style={"fontSize": "14px"})
-                    ], style={"marginBottom": "20px", "padding": "15px", "backgroundColor": "#f8f9fa", "borderRadius": "5px"}),
-                    
-                    # Model comparison
-                    html.Div([
-                        html.H4("Model Comparison", style={"color": "#2c3e50", "marginBottom": "15px"}),
-                        html.Div(id="model_comparison", style={"fontSize": "14px"})
-                    ], style={"marginBottom": "20px", "padding": "15px", "backgroundColor": "#f8f9fa", "borderRadius": "5px"}),
-                    
-                    # Calibration info
-                    html.Div([
-                        html.H4("Model Calibration", style={"color": "#2c3e50", "marginBottom": "15px"}),
-                        html.Div(id="calibration_info", style={"fontSize": "14px"})
-                    ], style={"marginBottom": "20px", "padding": "15px", "backgroundColor": "#f8f9fa", "borderRadius": "5px"})
-                    
-                ], style={"width": "25%", "float": "left", "padding": "20px"}),
-                
-                # Right panel - Evaluation Visualizations
-                html.Div([
-                    # Performance leaderboard
-                    html.Div([
-                        html.H3("Performance Leaderboard", 
-                                style={
-                                    "color": "#2c3e50", 
-                                    "marginBottom": "15px",
-                                    "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-                                    "fontWeight": "600"
-                                }),
-                        html.Div(id="performance_leaderboard", style={"marginBottom": "20px"})
-                    ]),
-                    
-                    # Calibration plot
-                    html.Div([
-                        html.H3("Model Calibration", 
-                                style={
-                                    "color": "#2c3e50", 
-                                    "marginBottom": "15px",
-                                    "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-                                    "fontWeight": "600"
-                                }),
-                        dcc.Graph(id="calibration_plot")
-                    ])
-                    
-                ], style={"width": "75%", "float": "right", "padding": "20px"})
-                
-            ], style={"display": "flex", "clear": "both"})
-        ])
-    ])
-], style={
-    "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif", 
-    "background": "#f8f9fa",
-    "minHeight": "100vh",
-    "padding": "20px",
-    "margin": "0",
-    "color": "#2c3e50"
-})
-
-
-# Callbacks
-@app.callback(
-    Output("search_dropdown", "options"),
-    Input("node_type_filter", "value")
-)
-def update_search_options(node_type):
-    """Update search options based on node type."""
-    if drugs_df is None or targets_df is None:
-        return []
-    
-    options = []
-    
-    # Get nodes that are actually in the graph
-    graph_drug_nodes = [n for n, d in G.nodes(data=True) if d.get("node_type") == "drug"]
-    graph_target_nodes = [n for n, d in G.nodes(data=True) if d.get("node_type") == "target"]
-    
-    if node_type in ["drug", "both"]:
-        # Get drugs with most connections (only from graph nodes)
-        drug_connections = dti_df[dti_df['drug_id'].isin(graph_drug_nodes)]['drug_id'].value_counts().head(20)
-        sample_drugs = drugs_df[drugs_df['drug_id'].isin(drug_connections.index)]
-        
-        drug_options = [{"label": f"{row['name']} ({row['drug_id']})", "value": row['drug_id']} 
-                       for _, row in sample_drugs.iterrows()]
-        options.extend(drug_options)
-    
-    if node_type in ["target", "both"]:
-        # Get targets with most connections (only from graph nodes)
-        target_connections = dti_df[dti_df['target_id'].isin(graph_target_nodes)]['target_id'].value_counts().head(20)
-        sample_targets = targets_df[targets_df['target_id'].isin(target_connections.index)]
-        
-        target_options = [{"label": f"{row['name']} ({row['target_id']})", "value": row['target_id']} 
-                         for _, row in sample_targets.iterrows()]
-        options.extend(target_options)
-    
-    return options
-
-@app.callback(
-    Output("network_graph", "figure"),
-    [Input("search_dropdown", "value"),
-     Input("viz_type", "value"),
-     Input("max_nodes_slider", "value"),
-     Input("walks_slider", "value")]
-)
-def update_network_graph(selected_node, viz_type, max_nodes, walks):
-    """Update the network visualization."""
-    # Always set show_labels to False since we removed the checkbox
-    show_labels_bool = False
-    
-    if viz_type == "3d":
-        return create_3d_network_figure(G, selected_node, max_nodes, walks)
-    else:
-        return create_network_figure(G, selected_node, max_nodes, show_labels_bool, walks)
-
-@app.callback(
-    Output("network_stats", "children"),
-    [Input("search_dropdown", "value"),
-     Input("max_nodes_slider", "value"),
-     Input("walks_slider", "value")]
-)
-def update_network_stats(selected_node, max_nodes, walks):
-    """Update network statistics."""
-    if G is None:
-        return "No network data available"
-    
-    if selected_node and selected_node in G:
-        # Get subgraph around selected node
-        nodes_to_include = {selected_node}
-        for _ in range(walks):
-            new_nodes = set()
-            for node in nodes_to_include:
-                neighbors = list(G.neighbors(node))
-                new_nodes.update(neighbors)
-            nodes_to_include.update(new_nodes)
-        
-        if len(nodes_to_include) > max_nodes:
-            nodes_to_include = set(list(nodes_to_include)[:max_nodes])
-        
-        subgraph = G.subgraph(nodes_to_include)
-        
-        return [
-            html.P(f"Subgraph: {len(subgraph.nodes())} nodes"),
-            html.P(f"Subgraph: {len(subgraph.edges())} edges"),
-            html.P(f"Network Density: {nx.density(subgraph):.3f}"),
-            html.P(f"Avg Degree: {sum(dict(subgraph.degree()).values()) / len(subgraph.nodes()):.1f}")
-        ]
-    else:
-        return [
-            html.P(f"Total nodes: {len(G.nodes()):,}"),
-            html.P(f"Total edges: {len(G.edges()):,}"),
-            html.P(f"Drugs: {len([n for n, d in G.nodes(data=True) if d.get('node_type') == 'drug']):,}"),
-            html.P(f"Targets: {len([n for n, d in G.nodes(data=True) if d.get('node_type') == 'target']):,}")
-        ]
-
-@app.callback(
-    Output("selected_node_details", "children"),
-    Input("search_dropdown", "value")
-)
-def update_selected_node_details(selected_node):
-    """Update selected node details."""
-    if G is None or not selected_node or selected_node not in G:
-        return "No node selected"
-    
-    # Get node info
-    node_data = G.nodes[selected_node]
-    node_type = node_data.get('node_type', 'unknown')
-    name = node_data.get('name', selected_node)
-    degree = G.degree(selected_node)
-    
-    # Get neighbors
-    neighbors = list(G.neighbors(selected_node))
-    neighbor_types = [G.nodes[n].get('node_type', 'unknown') for n in neighbors]
-    drug_neighbors = sum(1 for t in neighbor_types if t == 'drug')
-    target_neighbors = sum(1 for t in neighbor_types if t == 'target')
-    
-    # Get additional info based on node type
-    additional_info = []
-    if node_type == 'drug':
-        # Get drug info from dataframe
-        drug_info = drugs_df[drugs_df['drug_id'] == selected_node]
-        if not drug_info.empty:
-            drug_row = drug_info.iloc[0]
-            additional_info.extend([
-                html.P(f"Approved: {'Yes' if drug_row['approved'] else 'No'}", style={
-                    "color": "#27ae60" if drug_row['approved'] else "#e74c3c",
-                    "fontWeight": "500"
-                }),
-                html.P(f"Type: {drug_row['type']}"),
-                html.P(f"ATC Codes: {drug_row['atc_codes'] if pd.notna(drug_row['atc_codes']) else 'None'}")
-            ])
-    elif node_type == 'target':
-        # Get target info from dataframe
-        target_info = targets_df[targets_df['target_id'] == selected_node]
-        if not target_info.empty:
-            target_row = target_info.iloc[0]
-            additional_info.extend([
-                html.P(f"Organism: {target_row['organism']}"),
-                html.P(f"Human: {'Yes' if target_row['is_human'] else 'No'}", style={
-                    "color": "#27ae60" if target_row['is_human'] else "#e74c3c",
-                    "fontWeight": "500"
-                })
-            ])
-    
-    return [
-        html.H5(f"{name}", style={"color": "#2c3e50", "marginBottom": "10px"}),
-        html.P(f"ID: {selected_node}"),
-        html.P(f"Type: {node_type}"),
-        html.P(f"Connections: {degree}"),
-        html.P(f"Drug neighbors: {drug_neighbors}"),
-        html.P(f"Target neighbors: {target_neighbors}"),
-        html.Hr(),
-        *additional_info
-    ]
-
-@app.callback(
-    Output("network_metrics", "children"),
-    Input("search_dropdown", "value")
-)
-def update_network_metrics(selected_node):
-    """Update network metrics."""
-    if G is None:
-        return []
-    
-    if selected_node and selected_node in G:
-        # Calculate metrics for selected node
-        degree = G.degree(selected_node)
-        
-        # Calculate connection diversity (more meaningful for bipartite graphs)
-        # This shows how connected the node is relative to the maximum possible connections
-        try:
-            neighbors = list(G.neighbors(selected_node))
-            node_data = G.nodes[selected_node]
-            node_type = node_data.get('node_type', 'unknown')
-            
-            # Get the total possible connections based on node type
-            if node_type == 'drug':
-                # For drugs, max connections = number of targets
-                max_possible = len([n for n, d in G.nodes(data=True) if d.get("node_type") == "target"])
-            elif node_type == 'target':
-                # For targets, max connections = number of drugs
-                max_possible = len([n for n, d in G.nodes(data=True) if d.get("node_type") == "drug"])
-            else:
-                max_possible = len(G.nodes()) - 1
-            
-            # Connection diversity = actual connections / max possible connections
-            diversity = len(neighbors) / max_possible if max_possible > 0 else 0
-        except:
-            diversity = 0
-        
-        # Get neighbors
-        neighbors = list(G.neighbors(selected_node))
-        
-        return [
-            html.Div([
-                html.H5("Degree", style={"color": "#e74c3c"}),
-                html.P(f"{degree}")
-            ]),
-            html.Div([
-                html.H5("Diversity", style={"color": "#3498db"}),
-                html.P(f"{diversity:.3f}"),
-                html.P("(connection coverage)", style={"fontSize": "10px", "color": "#7f8c8d", "margin": "0"})
-            ]),
-            html.Div([
-                html.H5("Neighbors", style={"color": "#27ae60"}),
-                html.P(f"{len(neighbors)}")
-            ]),
-            html.Div([
-                html.H5("Type", style={"color": "#f39c12"}),
-                html.P(G.nodes[selected_node].get('node_type', 'unknown'))
-            ])
-        ]
-    else:
-        return [
-            html.Div([
-                html.H5("Avg Degree", style={"color": "#e74c3c"}),
-                html.P(f"{sum(dict(G.degree()).values()) / len(G.nodes()):.1f}")
-            ]),
-            html.Div([
-                html.H5("Density", style={"color": "#3498db"}),
-                html.P(f"{nx.density(G):.4f}")
-            ]),
-            html.Div([
-                html.H5("Components", style={"color": "#27ae60"}),
-                html.P(f"{nx.number_connected_components(G)}")
-            ]),
-            html.Div([
-                html.H5("Diameter", style={"color": "#f39c12"}),
-                html.P(f"{nx.diameter(G) if nx.is_connected(G) else '∞'}")
-            ])
-        ]
-
-@app.callback(
-    Output("ml_drug_dropdown", "options"),
-    Input("ml_feature_dropdown", "value")
-)
-def update_ml_drug_options(feature):
-    """Update ML drug options."""
-    if drugs_df is None or link_predictor is None:
-        return []
-    
-    # Only show drugs that exist in the trained model
-    # This prevents the broadcasting error
-    model_drug_nodes = set(link_predictor.drug_nodes)
-    
-    # Filter drugs_df to only include drugs in the model
-    available_drugs = drugs_df[drugs_df['drug_id'].isin(model_drug_nodes)]
-    
-    # Show most connected drugs from the available ones
-    if len(available_drugs) > 50:
-        drug_connections = dti_df[dti_df['drug_id'].isin(model_drug_nodes)]['drug_id'].value_counts().head(50)
-        sample_drugs = available_drugs[available_drugs['drug_id'].isin(drug_connections.index)]
-    else:
-        sample_drugs = available_drugs.head(50)
-    
-    return [{"label": f"{row['name']} ({row['drug_id']})", "value": row['drug_id']} 
-            for _, row in sample_drugs.iterrows()]
-
-@app.callback(
-    Output("ml_target_dropdown", "options"),
-    Input("ml_feature_dropdown", "value")
-)
-def update_ml_target_options(feature):
-    """Update ML target options."""
-    if targets_df is None or link_predictor is None:
-        return []
-    
-    # Only show targets that exist in the trained model
-    # This prevents the broadcasting error
-    model_target_nodes = set(link_predictor.target_nodes)
-    
-    # Filter targets_df to only include targets in the model
-    available_targets = targets_df[targets_df['target_id'].isin(model_target_nodes)]
-    
-    # Show most targeted proteins from the available ones
-    if len(available_targets) > 50:
-        target_connections = dti_df[dti_df['target_id'].isin(model_target_nodes)]['target_id'].value_counts().head(50)
-        sample_targets = available_targets[available_targets['target_id'].isin(target_connections.index)]
-    else:
-        sample_targets = available_targets.head(50)
-    
-    return [{"label": f"{row['name']} ({row['target_id']})", "value": row['target_id']} 
-            for _, row in sample_targets.iterrows()]
-
-@app.callback(
-    [Output("ml_results", "children"),
-     Output("ml_metrics", "children"),
-     Output("ml_status", "children"),
-     Output("ml_progress_bar", "style"),
-     Output("ml_progress_text", "children"),
-     Output("run_ml_button", "children")],
-    [Input("run_ml_button", "n_clicks")],
-    [dash.dependencies.State("ml_feature_dropdown", "value"),
-     dash.dependencies.State("ml_drug_dropdown", "value"),
-     dash.dependencies.State("ml_target_dropdown", "value")]
-)
-def run_ml_analysis(n_clicks, feature, drug_id, target_id):
-    """Run ML analysis based on selected feature."""
-    base_style = {"height": "20px", "backgroundColor": "#3498db", "borderRadius": "10px", "transition": "width 0.3s ease"}
-    
-    if n_clicks is None:
-        return "Select options and click 'Run Analysis' to start ML analysis.", "", "Ready", {"width": "0%", **base_style}, "", "Run Analysis"
-    
-    if not drug_id and feature != "similarity":
-        return "Please select a drug.", "", "Error: No drug selected", {"width": "0%", **base_style}, "", "Run Analysis"
-    
-    if not target_id and feature == "link_prediction":
-        return "Please select a target for link prediction.", "", "Error: No target selected", {"width": "0%", **base_style}, "", "Run Analysis"
-    
-    # Set initial progress and button text (much faster now with pre-trained models)
-    if feature == "link_prediction":
-        progress_style = {"width": "50%", **base_style}
-        progress_text = "Running prediction with pre-trained model..."
-        button_text = "Running Link Prediction..."
-    elif feature == "drug_repurposing":
-        progress_style = {"width": "50%", **base_style}
-        progress_text = "Finding similar drugs with pre-trained model..."
-        button_text = "Running Drug Repurposing..."
-    elif feature == "similarity":
-        progress_style = {"width": "50%", **base_style}
-        progress_text = "Analyzing network statistics..."
-        button_text = "Running Network Analysis..."
-    else:
-        return "Unknown feature selected.", "", "Error: Invalid feature", {"width": "0%", **base_style}, "", "Run Analysis"
-    
-    try:
-        if feature == "link_prediction":
-            results, metrics, status, progress, text = run_link_prediction(drug_id, target_id)
-            return results, metrics, status, progress, text, "Run Analysis"
-        elif feature == "drug_repurposing":
-            results, metrics, status, progress, text = run_drug_repurposing(drug_id)
-            return results, metrics, status, progress, text, "Run Analysis"
-        elif feature == "similarity":
-            results, metrics, status, progress, text = run_similarity_analysis()
-            return results, metrics, status, progress, text, "Run Analysis"
-        else:
-            return "Unknown feature selected.", "", "Error: Invalid feature", {"width": "0%", **base_style}, "", "Run Analysis"
-    except Exception as e:
-        return f"Error running analysis: {str(e)}", "", f"Error: {str(e)}", {"width": "0%", **base_style}, "", "Run Analysis"
-
-def run_link_prediction(drug_id, target_id):
-    """Run link prediction analysis."""
-    try:
-        # Validate that drug_id and target_id exist in the data
-        if drug_id not in drugs_df['drug_id'].values:
-            return f"Drug {drug_id} not found in database.", "", "Error: Drug not found", {"width": "0%", "height": "20px", "backgroundColor": "#e74c3c", "borderRadius": "10px", "transition": "width 0.3s ease"}, "Analysis failed"
-        
-        if target_id not in targets_df['target_id'].values:
-            return f"Target {target_id} not found in database.", "", "Error: Target not found", {"width": "0%", "height": "20px", "backgroundColor": "#e74c3c", "borderRadius": "10px", "transition": "width 0.3s ease"}, "Analysis failed"
-        
-        # Check if interaction exists (safe way)
-        existing_interaction = dti_df[(dti_df['drug_id'] == drug_id) & (dti_df['target_id'] == target_id)].shape[0] > 0
-        
-        # Use trained ML model for prediction
-        if existing_interaction:
-            prediction = 1.0  # Already exists
-        else:
-            # Use the trained link prediction model
-            if link_predictor is None:
-                return "Link prediction model not available. Please refresh the page.", "", "Error: Model not loaded", {"width": "0%", "height": "20px", "backgroundColor": "#e74c3c", "borderRadius": "10px", "transition": "width 0.3s ease"}, "Analysis failed"
-            
-            try:
-                prediction = link_predictor.predict_interaction(drug_id, target_id)
-            except Exception as e:
-                print(f"Error in ML prediction: {e}")
-                # Fallback to simple heuristic
-                drug_degree = G.degree(drug_id) if drug_id in G else 0
-                target_degree = G.degree(target_id) if target_id in G else 0
-                max_possible_degree = max(dict(G.degree()).values()) if len(G.nodes()) > 0 else 1
-                drug_prob = drug_degree / max_possible_degree if max_possible_degree > 0 else 0
-                target_prob = target_degree / max_possible_degree if max_possible_degree > 0 else 0
-                prediction = (drug_prob + target_prob) / 2 * 0.8
-    
-        # Get drug and target names
-        drug_name = drugs_df[drugs_df['drug_id'] == drug_id]['name'].iloc[0] if not drugs_df[drugs_df['drug_id'] == drug_id].empty else drug_id
-        target_name = targets_df[targets_df['target_id'] == target_id]['name'].iloc[0] if not targets_df[targets_df['target_id'] == target_id].empty else target_id
-        
-        # Create results
-        results = html.Div([
-            html.H4("Link Prediction Results", style={
-                "color": "#2c3e50", 
-                "marginBottom": "15px",
-                "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-                "fontWeight": "600"
-            }),
-            html.Div([
-                html.P(f"Drug: {drug_name} ({drug_id})"),
-                html.P(f"Target: {target_name} ({target_id})"),
-                html.P(f"Existing Interaction: {'Yes' if existing_interaction else 'No'}", style={
-                    "color": "#27ae60" if existing_interaction else "#e74c3c",
-                    "fontWeight": "500"
-                }),
-                html.Hr(),
-                html.H5("Prediction Results:", style={"color": "#2c3e50", "marginTop": "15px"}),
-                html.P(f"Interaction Probability: {prediction:.3f}", style={"fontSize": "14px"}),
-                html.P(f"Prediction: {'Likely Interaction' if prediction > 0.5 else 'Unlikely Interaction'}", style={
-                    "color": "#27ae60" if prediction > 0.5 else "#e74c3c",
-                    "fontWeight": "500"
-                }),
-                html.P(f"Confidence: {'High' if abs(prediction - 0.5) > 0.3 else 'Medium' if abs(prediction - 0.5) > 0.1 else 'Low'}")
-            ])
-        ])
-        
-        # Create metrics (read from results/results.json)
-        res = load_results()
-        if res:
-            rf = {k: v["random_forest"] for k, v in res["splits"].items()}
-            metric_rows = [html.P(f"{SPLIT_LABELS[k]}: ROC AUC {b['roc_auc']:.3f}, "
-                                  f"average precision {b['average_precision']:.3f}")
-                           for k, b in rf.items()]
-        else:
-            metric_rows = [html.P("No results yet. Run: python train_ml_models.py")]
-        metrics = html.Div([
-            html.H5("Model performance on held-out pairs", style={
-                "color": "#2c3e50",
-                "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-                "fontWeight": "500"
-            }),
-            *metric_rows,
-            html.P("Model: Random Forest Classifier, 12 graph and embedding features")
-        ])
-
-        return results, metrics, "Link prediction completed", {"width": "100%", "height": "20px", "backgroundColor": "#27ae60", "borderRadius": "10px", "transition": "width 0.3s ease"}, "Analysis complete"
-        
-    except Exception as e:
-        return f"Error in link prediction: {str(e)}", "", f"Error: {str(e)}", {"width": "0%", "height": "20px", "backgroundColor": "#e74c3c", "borderRadius": "10px", "transition": "width 0.3s ease"}, "Analysis failed"
-
-def run_drug_repurposing(drug_id):
-    """Run drug repurposing analysis."""
-    try:
-        # Use pre-trained model if available
-        if repurposer_obj is None:
-            return "Drug repurposing model not available. Please refresh the page.", "", "Error: Model not loaded", {"width": "0%", "height": "20px", "backgroundColor": "#e74c3c", "borderRadius": "10px", "transition": "width 0.3s ease"}, "Analysis failed"
-    
-        # Get drug info
-        drug_info = drugs_df[drugs_df['drug_id'] == drug_id]
-        if drug_info.empty:
-            return "Drug not found in database.", "", "Error: Drug not found"
-        
-        drug_name = drug_info['name'].iloc[0]
-        drug_type = drug_info['type'].iloc[0]
-        drug_approved = drug_info['approved'].iloc[0]
-        
-        # Get similar drugs
-        similar_drugs = repurposer_obj.find_similar_drugs(drug_id, top_k=5)
-        
-        # Get drug's targets
-        drug_targets = dti_df[dti_df['drug_id'] == drug_id]['target_id'].tolist()
-        target_names = []
-        for target_id in drug_targets[:5]:  # Show first 5
-            target_name = targets_df[targets_df['target_id'] == target_id]['name'].iloc[0] if not targets_df[targets_df['target_id'] == target_id].empty else target_id
-            target_names.append(target_name)
-        
-        # Create results
-        results = html.Div([
-            html.H4("Drug Repurposing Analysis", style={
-                "color": "#2c3e50", 
-                "marginBottom": "15px",
-                "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-                "fontWeight": "600"
-            }),
-            html.Div([
-                html.H5(f"Drug Profile: {drug_name}"),
-                html.P(f"Type: {drug_type}"),
-                html.P(f"Status: {'Approved' if drug_approved else 'Experimental'}", style={
-                    "color": "#27ae60" if drug_approved else "#e67e22",
-                    "fontWeight": "500"
-                }),
-                html.P(f"Targets: {len(drug_targets)} known targets"),
-                html.Hr(),
-                html.H5("Known Targets:", style={"color": "#2c3e50", "marginTop": "15px"}),
-                html.Ul([html.Li(name) for name in target_names]),
-                html.Hr(),
-                html.H5("Similar Drugs for Repurposing:", style={"color": "#2c3e50", "marginTop": "15px"}),
-                html.Ul([html.Li(f"{drug['name']} (similarity: {drug['similarity']:.3f})") for drug in similar_drugs])
-            ])
-        ])
-        
-        # Create metrics
-        metrics = html.Div([
-            html.H5("Repurposing Metrics", style={
-                "color": "#2c3e50",
-                "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-                "fontWeight": "500"
-            }),
-            html.P(f"Target Diversity: {len(drug_targets)} targets"),
-            html.P(f"Repurposing Potential: {'High' if len(drug_targets) > 10 else 'Medium' if len(drug_targets) > 5 else 'Low'}"),
-            html.P("Similarity Model: Node2Vec embeddings")
-        ])
-        
-        return results, metrics, "Drug repurposing analysis completed", {"width": "100%", "height": "20px", "backgroundColor": "#27ae60", "borderRadius": "10px", "transition": "width 0.3s ease"}, "Analysis complete"
-        
-    except Exception as e:
-        return f"Error in drug repurposing: {str(e)}", "", f"Error: {str(e)}", {"width": "0%", "height": "20px", "backgroundColor": "#e74c3c", "borderRadius": "10px", "transition": "width 0.3s ease"}, "Analysis failed"
-
-def run_similarity_analysis():
-    """Run comprehensive network analysis."""
-    try:
-        # Most connected drugs and targets, one row each, ranked by distinct partners
-        top_drugs = most_connected(dti_df, drugs_df, "drug_id")
-        top_targets = most_connected(dti_df, targets_df, "target_id")
-        
-        # Create scrollable drug list
-        drug_list_items = []
-        for _, row in top_drugs.iterrows():
-            drug_list_items.append(
-                html.Div([
-                    html.Div([
-                        html.Strong(row['name'], style={"color": "#2c3e50"}),
-                        html.Span(f" ({row['drug_id']})", style={"color": "#7f8c8d", "fontSize": "12px"})
-                    ], style={"marginBottom": "2px"}),
-                    html.Div([
-                        html.Span(f"{row['connections']} targets", style={"color": "#27ae60", "fontSize": "11px"}),
-                        html.Span(" | ", style={"color": "#bdc3c7", "margin": "0 5px"}),
-                        html.Span(f"Status: {'Approved' if row['approved'] else 'Experimental'}", 
-                                style={"color": "#3498db" if row['approved'] else "#e67e22", "fontSize": "11px"})
-                    ])
-                ], style={
-                    "padding": "8px", 
-                    "margin": "4px 0", 
-                    "border": "1px solid #ecf0f1", 
-                    "borderRadius": "4px",
-                    "backgroundColor": "#f8f9fa"
-                })
-            )
-        
-        # Create scrollable target list
-        target_list_items = []
-        for _, row in top_targets.iterrows():
-            target_list_items.append(
-                html.Div([
-                    html.Div([
-                        html.Strong(row['name'], style={"color": "#2c3e50"}),
-                        html.Span(f" ({row['target_id']})", style={"color": "#7f8c8d", "fontSize": "12px"})
-                    ], style={"marginBottom": "2px"}),
-                    html.Div([
-                        html.Span(f"{row['connections']} drugs", style={"color": "#e74c3c", "fontSize": "11px"}),
-                        html.Span(" | ", style={"color": "#bdc3c7", "margin": "0 5px"}),
-                        html.Span(f"Organism: {row['organism']}", style={"color": "#9b59b6", "fontSize": "11px"})
-                    ])
-                ], style={
-                    "padding": "8px", 
-                    "margin": "4px 0", 
-                    "border": "1px solid #ecf0f1", 
-                    "borderRadius": "4px",
-                    "backgroundColor": "#f8f9fa"
-                })
-            )
-    
-        # Create results with better formatting
-        results = html.Div([
-            html.H4("Network Analysis Results", style={
-                "color": "#2c3e50", 
-                "marginBottom": "20px",
-                "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-                "fontWeight": "600"
-            }),
-            
-            # Two column layout
-            html.Div([
-                # Left column - Drugs
-                html.Div([
-                    html.H5("Most Connected Drugs", style={
-                        "color": "#2c3e50", 
-                        "marginBottom": "15px",
-                        "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-                        "fontWeight": "500",
-                        "fontSize": "14px"
-                    }),
-                    html.Div(drug_list_items, style={
-                        "maxHeight": "400px", 
-                        "overflowY": "auto", 
-                        "border": "1px solid #dee2e6",
-                        "borderRadius": "4px",
-                        "padding": "8px",
-                        "backgroundColor": "white"
-                    })
-                ], style={"width": "48%", "display": "inline-block", "verticalAlign": "top"}),
-                
-                # Right column - Targets
-                html.Div([
-                    html.H5("Most Targeted Proteins", style={
-                        "color": "#2c3e50", 
-                        "marginBottom": "15px",
-                        "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-                        "fontWeight": "500",
-                        "fontSize": "14px"
-                    }),
-                    html.Div(target_list_items, style={
-                        "maxHeight": "400px", 
-                        "overflowY": "auto", 
-                        "border": "1px solid #dee2e6",
-                        "borderRadius": "4px",
-                        "padding": "8px",
-                        "backgroundColor": "white"
-                    })
-                ], style={"width": "48%", "display": "inline-block", "verticalAlign": "top", "marginLeft": "4%"})
-            ])
-        ])
-        
-        # Create professional metrics
-        metrics = html.Div([
-            html.H5("Network Statistics", style={
-                "color": "#2c3e50",
-                "fontFamily": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-                "fontWeight": "500",
-                "marginBottom": "15px"
-            }),
-            html.Div([
-                html.Div([
-                    html.Strong("Drug Connectivity"),
-                    html.P(f"Average: {drug_connections.mean():.1f} targets per drug", style={"margin": "5px 0", "fontSize": "12px"}),
-                    html.P(f"Max: {drug_connections.max()} targets", style={"margin": "5px 0", "fontSize": "12px", "color": "#7f8c8d"})
-                ], style={"marginBottom": "15px"}),
-                html.Div([
-                    html.Strong("Target Utilization"),
-                    html.P(f"Average: {target_connections.mean():.1f} drugs per target", style={"margin": "5px 0", "fontSize": "12px"}),
-                    html.P(f"Max: {target_connections.max()} drugs", style={"margin": "5px 0", "fontSize": "12px", "color": "#7f8c8d"})
-                ], style={"marginBottom": "15px"}),
-                html.Div([
-                    html.Strong("Network Properties"),
-                    html.P(f"Density: {nx.density(G):.6f}", style={"margin": "5px 0", "fontSize": "12px"}),
-                    html.P(f"Total Entities: {len(G.nodes()):,}", style={"margin": "5px 0", "fontSize": "12px", "color": "#7f8c8d"})
-                ])
-            ])
-        ])
-        
-        return results, metrics, "Network analysis completed", {"width": "100%", "height": "20px", "backgroundColor": "#27ae60", "borderRadius": "10px", "transition": "width 0.3s ease"}, "Analysis complete"
-        
-    except Exception as e:
-        return f"Error in network analysis: {str(e)}", "", f"Error: {str(e)}", {"width": "0%", "height": "20px", "backgroundColor": "#e74c3c", "borderRadius": "10px", "transition": "width 0.3s ease"}, "Analysis failed"
-
-# Advanced Analytics Callbacks
-@app.callback(
-    Output("analytics_type_dropdown", "value"),
-    Input("analytics_type_dropdown", "value"),
-    prevent_initial_call=True
-)
-def preserve_analytics_type(analytics_type):
-    """Preserve the analytics type selection."""
-    return analytics_type
-
-@app.callback(
-    Output("analytics_drug_dropdown", "options"),
-    Input("analytics_type_dropdown", "value")
-)
-def update_analytics_drug_options(analytics_type):
-    """Update drug options for analytics based on type."""
-    if drugs_df is None:
-        return []
-    
-    # Filter for actual pharmaceutical drugs only
-    # 1. Only approved drugs (not experimental)
-    approved_drugs = drugs_df[drugs_df['approved'] == True]
-    
-    # 2. Exclude endogenous compounds, amino acids, vitamins, etc.
-    endogenous_keywords = [
-        # Nucleotides and coenzymes
-        'ATP', 'ADP', 'AMP', 'GTP', 'GDP', 'cAMP', 'cGMP', 'NADH', 'NAD', 'FAD', 'FMN',
-        # Amino acids
-        'alanine', 'arginine', 'asparagine', 'aspartic acid', 'cysteine', 'glutamic acid', 
-        'glutamine', 'glycine', 'histidine', 'isoleucine', 'leucine', 'lysine', 'methionine',
-        'phenylalanine', 'proline', 'serine', 'threonine', 'tryptophan', 'tyrosine', 'valine',
-        # Vitamins and cofactors
-        'vitamin', 'cofactor', 'coenzyme', 'pyridoxal', 'thiamine', 'riboflavin', 'niacin',
-        # Minerals and basic compounds
-        'calcium', 'zinc', 'iron', 'copper', 'magnesium', 'sodium', 'potassium',
-        # Organic acids and basic compounds
-        'citric acid', 'formic acid', 'acetic acid', 'lactic acid', 'uric acid',
-        # Biological molecules
-        'glucose', 'fructose', 'sucrose', 'lactose', 'cholesterol', 'glycerol',
-        # Common endogenous compounds
-        'ethanol', 'water', 'oxygen', 'carbon dioxide', 'urea', 'creatinine'
-    ]
-    
-    def is_pharmaceutical_drug(name):
-        """Check if a compound is a pharmaceutical drug rather than endogenous compound."""
-        name_lower = name.lower()
-        # Skip endogenous compounds
-        for keyword in endogenous_keywords:
-            if keyword.lower() in name_lower:
-                return False
-        return True
-    
-    # Filter to pharmaceutical drugs only
-    pharmaceutical_drugs = approved_drugs[approved_drugs['name'].apply(is_pharmaceutical_drug)]
-    
-    # Get a larger sample of pharmaceutical drugs for better analysis
-    # Include drugs with any interactions (not just top 50)
-    drug_connections = dti_df['drug_id'].value_counts()
-    sample_drugs = pharmaceutical_drugs[pharmaceutical_drugs['drug_id'].isin(drug_connections.index)]
-    
-    # Also include some well-known pharmaceutical drugs for better testing
-    well_known_drugs = ['DB00316', 'DB01076', 'DB00381', 'DB01115', 'DB00641']  # Aspirin, Ibuprofen, etc.
-    well_known_df = pharmaceutical_drugs[pharmaceutical_drugs['drug_id'].isin(well_known_drugs)]
-    
-    # Combine and remove duplicates
-    all_drugs = pd.concat([sample_drugs, well_known_df]).drop_duplicates(subset=['drug_id'])
-    
-    # Sort by name for better usability
-    all_drugs = all_drugs.sort_values('name')
-    
-    # Limit to a reasonable number for the dropdown (top 200 by connections)
-    if len(all_drugs) > 200:
-        # Get top 200 by number of interactions
-        top_drugs = drug_connections.head(200).index
-        all_drugs = all_drugs[all_drugs['drug_id'].isin(top_drugs)]
-    
-    options = [{"label": f"{row['name']} ({row['drug_id']})", "value": row['drug_id']} 
-               for _, row in all_drugs.iterrows()]
-    
-    return options
-
-@app.callback(
-    [Output("analytics_results", "children"),
-     Output("analytics_visualizations", "children"),
-     Output("analytics_status", "children"),
-     Output("analytics_progress", "children"),
-     Output("analytics_progress", "style")],
-    [Input("run_analytics_button", "n_clicks")],
-    [State("analytics_type_dropdown", "value"),
-     State("analytics_drug_dropdown", "value")]
-)
-def run_advanced_analytics(n_clicks, analytics_type, drug_id):
-    """Run advanced analytics based on selected type and drug."""
-    if n_clicks is None or n_clicks == 0:
-        return "Select an analysis type and click 'Run Discovery Analysis' to get started.", "", "Ready to run analysis", "", {"display": "none"}
-    
-    try:
-        # Show loading status
-        progress_style = {
-            "marginTop": "15px",
-            "display": "block",
-            "padding": "10px",
-            "backgroundColor": "#e8f4fd",
-            "borderRadius": "5px",
-            "border": "1px solid #3498db"
-        }
-        
-        # Check if required data is available
-        if drugs_df is None or targets_df is None or dti_df is None:
-            return "Error: Required data not loaded. Please restart the application.", "", "Error: Data not available", "", {"display": "none"}
-        
-        # Check if embeddings are available for analytics
-        if embeddings_df is None:
-            return "Error: Embeddings not available. Please run 'python3 train_ml_models.py' to generate embeddings first.", "", "Error: Embeddings not available", "", {"display": "none"}
-        
-        # Show progress message
-        progress_msg = f"Running {analytics_type} analysis..."
-        if drug_id:
-            drug_name = drugs_df[drugs_df['drug_id'] == drug_id]['name'].iloc[0] if len(drugs_df[drugs_df['drug_id'] == drug_id]) > 0 else drug_id
-            progress_msg += f" for {drug_name}"
-        
-        if analytics_type == "discovery":
-            results, viz, status = run_drug_discovery_analytics(drug_id)
-            return results, viz, status, progress_msg, progress_style
-        elif analytics_type == "communities":
-            results, viz, status = run_network_communities_analytics(drug_id)
-            return results, viz, status, progress_msg, progress_style
-        elif analytics_type == "combinations":
-            results, viz, status = run_drug_combination_analytics(drug_id)
-            return results, viz, status, progress_msg, progress_style
-        else:
-            return "Unknown analytics type selected.", "", "Error: Invalid analytics type", "", {"display": "none"}
-    except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
-        print(f"Analytics error: {error_details}")
-        return f"Error running analytics: {str(e)}", "", f"Error: {str(e)}", "", {"display": "none"}
-
-RESULTS_PATH = Path("results/results.json")
-SPLIT_LABELS = {"random": "Random edge split", "drug_holdout": "Per-drug holdout"}
+SPLIT_LABELS = {
+    "random": "Random edge split",
+    "drug_holdout": "Per-drug split (controls for target popularity)",
+}
 METHOD_LABELS = {
     "random_forest": "Random forest",
-    "chance": "Chance",
-    "common_neighbors": "Common neighbours",
-    "preferential_attachment": "Preferential attachment",
     "l3_paths": "Length-3 paths",
+    "preferential_attachment": "Preferential attachment",
+    "chance": "Chance",
 }
+SHOWN_METHODS = ["random_forest", "l3_paths", "preferential_attachment", "chance"]
+DEFAULT_NODE_NAME = "Imatinib"
 
 
-def load_results():
-    """results/results.json, or None if training has not been run."""
-    if not RESULTS_PATH.exists():
-        return None
-    import json
-    return json.loads(RESULTS_PATH.read_text())
+# ----- data ------------------------------------------------------------------
+
+def load():
+    missing = [str(p.relative_to(ROOT)) for p in (DRUGS_FP, TARGETS_FP, DTI_FP, RESULTS_FP, MODEL_FP,
+                                                   EMBEDDINGS_FP) if not p.exists()]
+    if missing:
+        sys.exit("Missing " + ", ".join(missing) + ". Run: make run")
+    drugs = pd.read_parquet(DRUGS_FP)
+    targets = pd.read_parquet(TARGETS_FP)
+    dti = pd.read_parquet(DTI_FP)
+    G = build_bipartite_graph(drugs, targets, dti)
+    predictor = DTILinkPredictor.load_model(MODEL_FP)
+    emb = pd.read_parquet(EMBEDDINGS_FP)
+    if "node_id" in emb.columns:
+        emb = emb.set_index("node_id")
+    results = json.loads(RESULTS_FP.read_text())
+    predictions = pd.read_parquet(PREDICTIONS_FP) if PREDICTIONS_FP.exists() else None
+    return drugs, targets, G, predictor, emb, results, predictions
 
 
-# ML Evaluation Callbacks
-@app.callback(
-    [Output("eval_summary", "children"),
-     Output("model_comparison", "children"),
-     Output("calibration_info", "children"),
-     Output("performance_leaderboard", "children"),
-     Output("calibration_plot", "figure")],
-    [Input("url", "pathname")],  # Trigger on URL change (page load)
-    prevent_initial_call=False
-)
-def load_evaluation_data(_):
-    """Show the evaluation from results/results.json (written by train_ml_models.py)."""
-    results = load_results()
-    if results is None:
-        msg = "No results yet. Run: python train_ml_models.py"
-        return msg, "", "", "", go.Figure()
+DRUGS, TARGETS, G, PREDICTOR, EMB, RESULTS, PREDICTIONS = load()
+DRUG_INFO = DRUGS.set_index("drug_id")
+TARGET_INFO = TARGETS.set_index("target_id")
+FEATURED = set(DRUGS.loc[featured_mask(DRUGS), "drug_id"])
 
-    def fmt(block, key, ci_key):
-        lo, hi = block[ci_key]
-        return f"{block[key]:.3f} ({lo:.3f}–{hi:.3f})"
 
-    splits = results["splits"]
-    summary = html.Div([
+def is_drug(n):
+    return G.nodes[n]["node_type"] == "drug"
+
+
+def label(n):
+    """Short label: drug name, or the target's gene symbol (full name in details)."""
+    if is_drug(n):
+        return G.nodes[n]["name"] or n
+    gene = TARGET_INFO.at[n, "gene_symbol"] if n in TARGET_INFO.index else ""
+    return gene or G.nodes[n]["name"] or n
+
+
+def search_options():
+    opts = []
+    for n, d in G.nodes(data=True):
+        if G.degree(n) == 0:
+            continue
+        if d["node_type"] == "drug":
+            opts.append({"label": f"{d['name']} · drug", "value": n, "search": f"{d['name']} {n}"})
+        else:
+            gene = TARGET_INFO.at[n, "gene_symbol"]
+            text = f"{gene} — {d['name']}" if gene else d["name"]
+            opts.append({"label": f"{text} · target", "value": n, "search": f"{text} {n}"})
+    opts.sort(key=lambda o: o["label"].lower())
+    return opts
+
+
+SEARCH_OPTIONS = search_options()
+DEFAULT_NODE = next((n for n in sorted(FEATURED) if G.nodes[n]["name"] == DEFAULT_NODE_NAME
+                     and G.degree(n) > 0), max(FEATURED, key=G.degree))
+
+
+def suggestions(node):
+    """Scores for unlinked partners. A target's suggestions are featured drugs only."""
+    if is_drug(node):
+        return PREDICTOR.score_candidates(node)
+    cands = [d for d in sorted(FEATURED) if G.degree(d) > 0 and not G.has_edge(node, d)]
+    return PREDICTOR.score_candidates(node, cands)
+
+
+# ----- small components ------------------------------------------------------
+
+def mono(text=None, className="mono", **kw):
+    return html.Span(text, className=className, **kw)
+
+
+def fmt_int(n):
+    return f"{n:,}"
+
+
+def header():
+    ds = RESULTS["dataset"]
+    return html.Div([
+        html.Header([
+            html.Div([
+                mono("drugbank · node2vec · random forest link prediction"),
+                html.H1("Drug–target interaction network"),
+            ], className="title"),
+            html.Nav(id="nav", **{"aria-label": "Views"}),
+        ], className="site-header"),
+        html.Section([
+            html.Div([html.Span(fmt_int(ds["drugs_with_human_target"]), className="stat"),
+                      " ", html.Span("drugs with a human target", className="secondary")]),
+            html.Div([html.Span(fmt_int(ds["human_targets"]), className="stat"),
+                      " ", html.Span("human targets", className="secondary")]),
+            html.Div([html.Span(fmt_int(ds["interactions"]), className="stat"),
+                      " ", html.Span("known interactions", className="secondary")]),
+            mono(f"DrugBank {RESULTS['source'].get('version', '')}, exported "
+                 f"{RESULTS['source'].get('exported_on', '')} · counts from results.json",
+                 className="mono stats-note"),
+        ], className="stats"),
+    ], className="head-block")
+
+
+VIEWS = [("explore", "/"), ("predictions", "/predictions"), ("evaluation", "/evaluation"),
+         ("methods", "/methods")]
+
+
+def nav(pathname):
+    # The current view is a plain anchor so it can carry aria-current; dcc.Link cannot.
+    return [html.A(name, href=href, className="nav-link active", **{"aria-current": "page"})
+            if pathname == href else dcc.Link(name, href=href, className="nav-link")
+            for name, href in VIEWS]
+
+
+# ----- explore view ----------------------------------------------------------
+
+def key_item(svg, text):
+    return html.Div([svg, html.Span(text)], className="key-item")
+
+
+def explore_view(node):
+    return html.Section([
+        html.Aside([
+            html.Label([
+                "Find a drug or target",
+                dcc.Dropdown(id="node-search", options=SEARCH_OPTIONS, value=node, clearable=True,
+                             placeholder="Type a drug, gene or protein name", optionHeight=44,
+                             className="search"),
+            ], className="field"),
+            html.Div([
+                html.Div("Show", className="field-title"),
+                dcc.Checklist(id="show", value=["known", "predicted", "shared"], className="checks",
+                              options=[{"label": "Known interactions", "value": "known"},
+                                       {"label": "Predicted links", "value": "predicted"},
+                                       {"label": "Nodes that share a partner", "value": "shared"}]),
+            ]),
+            html.Div([
+                html.Div("Minimum prediction score", className="field-title"),
+                dcc.Slider(id="min-score", min=0, max=1, step=0.05, value=0.7,
+                           marks=None, tooltip=None, className="slider"),
+                mono(id="min-score-label"),
+            ]),
+            html.Div([
+                html.Div("Key", className="field-title"),
+                key_item(html.Span(className="glyph drug"), "Drug (circle)"),
+                key_item(html.Span(className="glyph target"), "Target (square)"),
+                key_item(html.Span(className="glyph line known"), "Known interaction"),
+                key_item(html.Span(className="glyph line predicted"), "Predicted link"),
+                key_item(html.Span(className="glyph line shared"), "Shares a partner"),
+            ], className="key"),
+        ], className="card controls"),
         html.Div([
-            html.H5(SPLIT_LABELS[kind], style={"marginBottom": "4px"}),
-            html.P(split["description"], style={"color": "#7f8c8d", "fontSize": "12px"}),
-            html.P(f"ROC AUC: {fmt(split['random_forest'], 'roc_auc', 'roc_auc_ci95')}"),
-            html.P(f"Average precision: "
-                   f"{fmt(split['random_forest'], 'average_precision', 'average_precision_ci95')}"),
-            html.P(f"Test pairs: {split['counts']['test_positives']:,} positive, "
-                   f"{split['counts']['test_negatives']:,} negative"),
-        ]) for kind, split in splits.items()
-    ] + [html.P("Brackets: 95% bootstrap interval over test pairs.",
-                style={"color": "#7f8c8d", "fontSize": "12px"})])
+            html.Div([html.H2(id="nb-title"), mono(id="nb-meta")], className="card-head"),
+            dcc.Loading(dcc.Graph(id="nb-graph", config={"displayModeBar": False, "scrollZoom": False},
+                                  responsive=True, className="nb-graph"),
+                        type="dot", color=INK),
+            html.Div(id="nb-table", className="nb-table"),
+            html.Div([mono("click a node to recentre · drag to pan"),
+                      html.Button("view as table", id="table-toggle", n_clicks=0,
+                                  className="link-button")], className="card-foot"),
+        ], className="card network"),
+        html.Aside(dcc.Loading(html.Div(id="details"), type="dot", color=INK),
+                   className="card details"),
+    ], className="explore")
 
-    comparison = html.P(results["metrics_note"], style={"fontSize": "12px"})
-    calibration_info = html.Div([
-        html.P(f"Brier score, {SPLIT_LABELS[kind]}: {split['random_forest']['brier_score']:.4f}")
-        for kind, split in splits.items()
-    ] + [html.P("Lower is better (0 = perfect).")])
 
-    methods = ["random_forest"] + list(next(iter(splits.values()))["baselines"])
-    rows = []
-    for m in methods:
-        cells = [html.Td(METHOD_LABELS[m], style={"padding": "8px"})]
-        for split in splits.values():
-            block = split["random_forest"] if m == "random_forest" else split["baselines"][m]
-            cells += [html.Td(fmt(block, "roc_auc", "roc_auc_ci95"),
-                              style={"padding": "8px", "textAlign": "center"}),
-                      html.Td(fmt(block, "average_precision", "average_precision_ci95"),
-                              style={"padding": "8px", "textAlign": "center"})]
-        rows.append(html.Tr(cells))
-    header = [html.Th("Method", style={"padding": "8px", "textAlign": "left"})]
-    for kind in splits:
-        header += [html.Th(f"{SPLIT_LABELS[kind]} ROC AUC", style={"padding": "8px"}),
-                   html.Th(f"{SPLIT_LABELS[kind]} AP", style={"padding": "8px"})]
-    leaderboard = html.Table([html.Thead(html.Tr(header)), html.Tbody(rows)],
-                             style={"width": "100%", "borderCollapse": "collapse",
-                                    "border": "1px solid #dee2e6"})
-
+def network_figure(nb, show):
+    pos = radial_layout(nb)
+    center = nb["center"]
+    center_is_drug = is_drug(center)
     fig = go.Figure()
-    eval_path = Path("models/evaluation_results.pkl")
-    if eval_path.exists():
-        per_split = pd.read_pickle(eval_path)
-        for kind, ev in per_split.items():
-            cal = ev["calibration"]
-            fig.add_trace(go.Scatter(x=cal["mean_predicted_value"], y=cal["fraction_of_positives"],
-                                     mode="lines+markers", name=SPLIT_LABELS[kind]))
-    fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines", name="Perfect calibration",
-                             line=dict(dash="dash")))
-    fig.update_layout(title="Calibration on held-out pairs",
-                      xaxis_title="Mean predicted probability",
-                      yaxis_title="Fraction that are known interactions",
-                      xaxis=dict(range=[0, 1]), yaxis=dict(range=[0, 1]), height=400)
-    return summary, comparison, calibration_info, leaderboard, fig
 
-# Community Graph Click Prevention Callback
-@app.callback(
-    Output("community_network_graph", "clickData"),
-    Input("community_network_graph", "clickData"),
-    prevent_initial_call=True
-)
-def prevent_community_graph_clicks(click_data):
-    """Prevent community graph clicks from triggering other callbacks."""
-    # Return None to prevent any click data from being processed
-    return None
+    def edges(kind, color, width, dash=None):
+        xs, ys = [], []
+        for e in nb["edges"]:
+            if e["kind"] == kind:
+                (x0, y0), (x1, y1) = pos[e["source"]], pos[e["target"]]
+                xs += [x0, x1, None]
+                ys += [y0, y1, None]
+        if xs:
+            fig.add_trace(go.Scatter(x=xs, y=ys, mode="lines", hoverinfo="skip",
+                                     line=dict(color=color, width=width, dash=dash)))
 
-# Advanced Analytics Functions
-def run_drug_discovery_analytics(drug_id=None):
-    """Run drug discovery insights (can work with or without specific drug)."""
-    # Initialize analytics
-    repurposing_analytics = DrugRepurposingAnalytics(drugs_df, targets_df, dti_df, embeddings_df)
-    network_analytics = NetworkAnalytics(G, drugs_df, targets_df, dti_df)
-    
-    if drug_id:
-        # Focused analysis on specific drug
-        drug_info = drugs_df[drugs_df['drug_id'] == drug_id].iloc[0]
-        
-        # Find similar drugs
-        similar_drugs = repurposing_analytics.find_similar_drugs(drug_id, top_k=10, similarity_threshold=0.3)
-        
-        # Find repurposing opportunities
-        opportunities = repurposing_analytics.repurposing_opportunities(drug_id)
-        
-        # Network centrality - Optimized for speed (degree centrality only)
-        if drug_id in G:
-            neighbors = list(G.neighbors(drug_id))
-            degree_centrality = len(neighbors) / (len(G.nodes()) - 1) if len(G.nodes()) > 1 else 0
-            centrality = {
-                'degree_centrality': degree_centrality,
-                'betweenness_centrality': 0.0,  # Skip slow calculation
-                'closeness_centrality': 0.0     # Skip slow calculation
-            }
-        else:
-            centrality = {
-                'degree_centrality': 0.0,
-                'betweenness_centrality': 0.0,
-                'closeness_centrality': 0.0
-            }
-        
-        results = html.Div([
-            html.H4(f"Drug Discovery Insights: {drug_info['name']}", 
-                    style={"color": "#2c3e50", "marginBottom": "15px"}),
-            
-            html.Div([
-                html.H5(f"Similar Drugs ({len(similar_drugs)} found)", style={"color": "#3498db", "marginBottom": "10px"}),
-                html.Div([
-                    html.Div([
-                        html.P(f"• {drug['name']} (Similarity: {drug['similarity']:.3f})", 
-                               style={"margin": "5px 0", "fontSize": "14px"}),
-                        html.P(f"  Type: {drug['type']}, Approved: {'Yes' if drug['approved'] else 'No'}", 
-                               style={"margin": "0 0 10px 20px", "fontSize": "12px", "color": "#7f8c8d"})
-                    ]) for drug in similar_drugs[:5]
-                ]) if similar_drugs else html.P("No similar drugs found.", style={"color": "#e74c3c", "fontStyle": "italic"})
-            ], style={"marginBottom": "20px", "padding": "15px", "backgroundColor": "#ecf0f1", "borderRadius": "5px"}),
-            
-            html.Div([
-                html.H5("Network Position (Fast Analysis)", style={"color": "#e74c3c", "marginBottom": "10px"}),
-                html.P(f"Degree Centrality: {centrality.get('degree_centrality', 0):.4f}"),
-                html.P(f"Target Connections: {len(list(G.neighbors(drug_id))) if drug_id in G else 0}"),
-                html.P(f"Note: Showing degree centrality only for faster analysis", 
-                       style={"fontSize": "11px", "color": "#7f8c8d", "fontStyle": "italic"})
-            ], style={"padding": "15px", "backgroundColor": "#ecf0f1", "borderRadius": "5px"})
-        ])
-        
-        # Create visualization
-        if similar_drugs:
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=[0], y=[0],
-                mode='markers+text',
-                marker=dict(size=20, color='red'),
-                text=[drug_info['name']],
-                textposition="middle center",
-                name="Selected Drug"
-            ))
-            
-            angles = np.linspace(0, 2*np.pi, len(similar_drugs), endpoint=False)
-            x_coords = np.cos(angles) * 2
-            y_coords = np.sin(angles) * 2
-            
-            fig.add_trace(go.Scatter(
-                x=x_coords, y=y_coords,
-                mode='markers+text',
-                marker=dict(size=15, color='blue'),
-                text=[drug['name'] for drug in similar_drugs],
-                textposition="middle center",
-                name="Similar Drugs"
-            ))
-            
-            fig.update_layout(
-                title="Drug Discovery Network",
-                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                height=400
-            )
-            
-            visualizations = dcc.Graph(figure=fig)
-        else:
-            visualizations = html.P("No similar drugs found for visualization.")
-            
-    else:
-        # General discovery insights - Optimized for speed
-        # Use degree centrality only (much faster than betweenness)
-        drug_centralities = []
-        
-        # Get drugs with most connections (top 10 for speed)
-        drug_connections = dti_df['drug_id'].value_counts().head(10)
-        
-        for drug_id in drug_connections.index:
-            drug_info = drugs_df[drugs_df['drug_id'] == drug_id].iloc[0]
-            # Only calculate degree centrality (fast)
-            degree_centrality = len(list(G.neighbors(drug_id))) / (len(G.nodes()) - 1) if len(G.nodes()) > 1 else 0
-            
-            drug_centralities.append({
-                'name': drug_info['name'],
-                'degree': degree_centrality,
-                'connections': drug_connections[drug_id]
-            })
-        
-        # Sort by degree centrality
-        drug_centralities.sort(key=lambda x: x['degree'], reverse=True)
-        
-        results = html.Div([
-            html.H4("Drug Discovery Insights", 
-                    style={"color": "#2c3e50", "marginBottom": "15px"}),
-            
-            html.Div([
-                html.H5("Top Drugs by Network Importance", style={"color": "#3498db", "marginBottom": "10px"}),
-                html.Div([
-                    html.Div([
-                        html.P(f"• {drug['name']} (Degree: {drug['degree']:.4f}, Connections: {drug['connections']})", 
-                               style={"margin": "5px 0", "fontSize": "14px"})
-                    ]) for drug in drug_centralities[:10]
-                ])
-            ], style={"padding": "15px", "backgroundColor": "#ecf0f1", "borderRadius": "5px"})
-        ])
-        
-        # Create visualization
-        fig = go.Figure()
-        fig.add_trace(go.Bar(
-            x=[drug['name'] for drug in drug_centralities[:10]],
-            y=[drug['degree'] for drug in drug_centralities[:10]],
-            name='Degree Centrality'
-        ))
-        
-        fig.update_layout(
-            title="Top Drugs by Network Importance",
-            xaxis_title="Drug",
-            yaxis_title="Degree Centrality",
-            height=400
-        )
-        
-        visualizations = dcc.Graph(figure=fig)
-    
-    return results, visualizations, "Drug discovery analysis completed"
+    if "shared" in show:
+        edges("shared", RULE, 1.5)
+    if "known" in show:
+        edges("known", INK, 2)
+    if "predicted" in show:
+        edges("predicted", PURPLE, 3, "dash")
 
-def run_network_communities_analytics(drug_id=None):
-    """Run network community analysis."""
-    # Initialize analytics
-    network_analytics = NetworkAnalytics(G, drugs_df, targets_df, dti_df)
-    
-    # Detect communities
-    communities = network_analytics.community_detection()
-    
-    print(f"DEBUG: Detected {len(communities)} communities")
-    for comm_id, members in list(communities.items())[:5]:
-        print(f"  Community {comm_id}: {len(members)} members")
-    
-    # Initialize community_stats for visualization
-    community_stats = []
-    
-    print(f"DEBUG: drug_id parameter = {drug_id}")
-    
-    if drug_id:
-        # Focused analysis on specific drug's community
-        drug_info = drugs_df[drugs_df['drug_id'] == drug_id].iloc[0]
-        
-        # Find which community the drug belongs to
-        drug_community = None
-        for community_id, members in communities.items():
-            if drug_id in members:
-                drug_community = community_id
-                break
-        
-        if drug_community is not None:
-            # Get other drugs in the same community (remove duplicates)
-            community_drugs = list(set([m for m in communities[drug_community] if m in drugs_df['drug_id'].values]))
-            community_drug_info = drugs_df[drugs_df['drug_id'].isin(community_drugs)].drop_duplicates(subset=['drug_id'])
-            
-            # Create community_stats for this specific community
-            drug_count = len(community_drugs)
-            target_count = len([m for m in communities[drug_community] if m in targets_df['target_id'].values])
-            community_stats.append({
-                'community_id': drug_community,
-                'drug_count': drug_count,
-                'target_count': target_count,
-                'total_members': len(communities[drug_community])
-            })
-            
-            results = html.Div([
-                html.H4(f"Network Communities: {drug_info['name']}", 
-                        style={"color": "#2c3e50", "marginBottom": "15px"}),
-                
-                html.Div([
-                    html.H5(f"Community {drug_community} ({len(community_drugs)} drugs)", 
-                            style={"color": "#3498db", "marginBottom": "10px"}),
-                    html.Div([
-                        html.P(f"• {row['name']} ({row['drug_id']})", 
-                               style={"margin": "5px 0", "fontSize": "14px"})
-                        for _, row in community_drug_info.head(10).iterrows()
-                    ])
-                ], style={"padding": "15px", "backgroundColor": "#ecf0f1", "borderRadius": "5px"})
-            ])
-        else:
-            results = html.Div([
-                html.H4(f"Network Communities: {drug_info['name']}", 
-                        style={"color": "#2c3e50", "marginBottom": "15px"}),
-                html.P("Drug not found in any community.", style={"color": "#e74c3c"})
-            ])
-    else:
-        # General community analysis
-        # Count drugs in each community
-        print(f"DEBUG: Starting community stats creation...")
-        print(f"DEBUG: Processing {len(communities)} communities for stats creation")
-        for community_id, members in communities.items():
-            drug_count = len([m for m in members if m in drugs_df['drug_id'].values])
-            target_count = len([m for m in members if m in targets_df['target_id'].values])
-            print(f"DEBUG: Community {community_id}: {drug_count} drugs, {target_count} targets, {len(members)} total")
-            # Show communities with either drugs or targets (but at least some meaningful content)
-            if drug_count > 0 or target_count > 5:  # Show communities with drugs OR significant targets
-                print(f"DEBUG: Adding Community {community_id} to stats")
-                community_stats.append({
-                    'community_id': community_id,
-                    'drug_count': drug_count,
-                    'target_count': target_count,
-                    'total_members': len(members)
-                })
-            else:
-                print(f"DEBUG: Skipping Community {community_id} (no drugs and <=5 targets)")
-        
-        # Sort by drug count
-        community_stats.sort(key=lambda x: x['drug_count'], reverse=True)
-        
-        print(f"DEBUG: Created {len(community_stats)} community_stats")
-        print(f"DEBUG: Total communities that passed the filter: {len(community_stats)}")
-        print(f"DEBUG: Communities that passed the filter:")
-        for stat in community_stats:
-            print(f"  Community {stat['community_id']}: {stat['drug_count']} drugs, {stat['target_count']} targets")
-        
-        results = html.Div([
-            html.H4("Network Communities", 
-                    style={"color": "#2c3e50", "marginBottom": "15px"}),
-            
-            html.Div([
-                html.H5(f"Found {len(community_stats)} Communities", 
-                        style={"color": "#3498db", "marginBottom": "10px"}),
-                html.P("Communities represent groups of drugs and targets that work together functionally. Drugs in the same community often target similar pathways or treat related conditions.", 
-                       style={"fontSize": "12px", "color": "#7f8c8d", "marginBottom": "15px", "fontStyle": "italic"}),
-                html.Div([
-                    html.Div([
-                        html.P(f"• Community {stat['community_id']}: {stat['drug_count']} drugs, {stat['target_count']} targets", 
-                               style={"margin": "5px 0", "fontSize": "14px"})
-                    ]) for stat in community_stats[:10]
-                ])
-            ], style={"padding": "15px", "backgroundColor": "#ecf0f1", "borderRadius": "5px"})
-        ])
-    
-    # Create community network visualization
-    if community_stats:
-        # Get the top 5 largest communities for better visualization (showing all nodes)
-        top_communities = community_stats[:5]
-        
-        # Debug: Print what communities we're trying to visualize
-        print(f"Attempting to visualize {len(top_communities)} communities:")
-        for comm in top_communities:
-            print(f"  Community {comm['community_id']}: {comm['total_members']} nodes ({comm['drug_count']} drugs, {comm['target_count']} targets)")
-        
-        # Create network graph showing community structure
-        fig_network = go.Figure()
-        
-        # Track all nodes and their positions
-        all_nodes = []
-        node_positions = {}
-        node_colors = []
-        node_sizes = []
-        node_labels = []
-        node_types = []  # Track if node is drug or target
-        
-        # Distinct colors for different node types
-        community_colors = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6']  # Red, Blue, Green, Orange, Purple
-        drug_colors = ['#c0392b', '#2980b9', '#27ae60', '#e67e22', '#8e44ad']      # Darker versions for drugs
-        target_colors = ['#ec7063', '#5dade2', '#58d68d', '#f8c471', '#bb8fce']   # Lighter versions for targets
-        
-        # Position communities in a larger circle with better spacing
-        center_x, center_y = 0, 0
-        radius = 8  # Increased radius for better separation
-        
-        for i, community_stat in enumerate(top_communities):
-            community_id = community_stat['community_id']
-            
-            # Get community members from the communities dict
-            if community_id in communities:
-                community_members = communities[community_id]
-                
-                # Separate drugs and targets
-                community_drugs = [m for m in community_members if m in drugs_df['drug_id'].values]
-                community_targets = [m for m in community_members if m in targets_df['target_id'].values]
-                
-                print(f"  Processing Community {community_id}: {len(community_drugs)} drugs, {len(community_targets)} targets")
-                
-                # Position community center with better spacing
-                angle = (2 * np.pi * i) / len(top_communities)
-                comm_x = center_x + radius * np.cos(angle)
-                comm_y = center_y + radius * np.sin(angle)
-                
-                # Add community center node
-                all_nodes.append(f"Community_{community_id}")
-                node_positions[f"Community_{community_id}"] = (comm_x, comm_y)
-                node_colors.append(community_colors[i % len(community_colors)])
-                node_sizes.append(25)
-                node_labels.append(f"C{community_id}")  # Simplified label
-                node_types.append("center")
-                
-                # Position ALL drugs in inner circle
-                for j, drug_id in enumerate(community_drugs):
-                    drug_angle = angle + (2 * np.pi * j) / len(community_drugs) - np.pi/3
-                    drug_radius = 3.0  # Increased radius for better visibility
-                    drug_x = comm_x + drug_radius * np.cos(drug_angle)
-                    drug_y = comm_y + drug_radius * np.sin(drug_angle)
-                    
-                    drug_name = drugs_df[drugs_df['drug_id'] == drug_id]['name'].iloc[0]
-                    all_nodes.append(drug_id)
-                    node_positions[drug_id] = (drug_x, drug_y)
-                    # Use distinct drug colors (darker, more saturated)
-                    node_colors.append(drug_colors[i % len(drug_colors)])
-                    node_sizes.append(12)
-                    node_labels.append("")  # No text labels on nodes
-                    node_types.append("drug")
-                
-                # Position ALL targets in outer circle
-                for j, target_id in enumerate(community_targets):
-                    target_angle = angle + (2 * np.pi * j) / len(community_targets) + np.pi/3
-                    target_radius = 5.0  # Increased radius for better separation
-                    target_x = comm_x + target_radius * np.cos(target_angle)
-                    target_y = comm_y + target_radius * np.sin(target_angle)
-                    
-                    target_name = targets_df[targets_df['target_id'] == target_id]['name'].iloc[0]
-                    all_nodes.append(target_id)
-                    node_positions[target_id] = (target_x, target_y)
-                    # Use distinct target colors (lighter, pastel-like)
-                    node_colors.append(target_colors[i % len(target_colors)])
-                    node_sizes.append(8)
-                    node_labels.append("")  # No text labels on nodes
-                    node_types.append("target")
-        
-        # Create edges (connections within communities)
-        edges_x = []
-        edges_y = []
-        
-        for community_stat in top_communities:
-            community_id = community_stat['community_id']
-            if community_id in communities:
-                community_members = communities[community_id]
-                
-                # Connect community center to its members
-                comm_center = f"Community_{community_id}"
-                if comm_center in node_positions:
-                    for member in community_members:
-                        if member in node_positions:
-                            # Add edge from center to member
-                            edges_x.extend([node_positions[comm_center][0], node_positions[member][0], None])
-                            edges_y.extend([node_positions[comm_center][1], node_positions[member][1], None])
-        
-        # Add edges
-        if edges_x:
-            fig_network.add_trace(go.Scatter(
-                x=edges_x,
-                y=edges_y,
-                mode='lines',
-                line=dict(color='rgba(100,100,100,0.2)', width=0.5),
-                hoverinfo='none',
-                showlegend=False
-            ))
-        
-        # Add nodes
-        node_x = [node_positions[node][0] for node in all_nodes]
-        node_y = [node_positions[node][1] for node in all_nodes]
-        
-        print(f"Total nodes in visualization: {len(all_nodes)}")
-        print(f"Node types: {dict(zip(*np.unique(node_types, return_counts=True)))}")
-        print(f"Node positions: {len(node_positions)}")
-        print(f"Sample node positions: {list(node_positions.items())[:5]}")
-        
-        fig_network.add_trace(go.Scatter(
-            x=node_x,
-            y=node_y,
-            mode='markers',  # No text labels
-            marker=dict(
-                size=node_sizes,
-                color=node_colors,
-                line=dict(color='white', width=1),
-                opacity=0.8
-            ),
-            hoverinfo='text',
-            name='Community Network',
-            customdata=node_types,  # Store node types for hover info
-            hovertemplate='<b>%{text}</b><br>Type: %{customdata}<extra></extra>',
-            text=[f"Community {n.split('_')[1]}" if n.startswith('Community_') else 
-                  (drugs_df[drugs_df['drug_id'] == n]['name'].iloc[0] if n in drugs_df['drug_id'].values else 
-                   targets_df[targets_df['target_id'] == n]['name'].iloc[0]) for n in all_nodes]
-        ))
-        
-        fig_network.update_layout(
-            title="Community Network Structure - 5 Largest Communities",
-            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-            height=600,
-            width=800,  # Fixed width for better centering
-            showlegend=False,
-            plot_bgcolor='white',
-            clickmode='event',  # Enable clicks for navigation
-            margin=dict(l=50, r=50, t=80, b=50),  # Better margins
-            dragmode='pan',  # Enable panning
-            hovermode='closest'  # Enable hover
-        )
-        
-        # Add explanation and legend
-        community_ids = [f'C{comm["community_id"]}' for comm in top_communities]
-        explanation = html.Div([
-            html.P(f"This visualization shows the {len(top_communities)} largest communities in the drug-target network.", 
-                   style={"fontSize": "14px", "color": "#2c3e50", "marginBottom": "10px"}),
-            html.P("Each community is a group of drugs and targets that work together functionally.", 
-                   style={"fontSize": "12px", "color": "#7f8c8d", "marginBottom": "15px", "fontStyle": "italic"}),
-            html.P(f"Communities found: {', '.join(community_ids)}", 
-                   style={"fontSize": "12px", "color": "#e67e22", "fontWeight": "bold"})
-        ])
-        
-        # Add legend
-        legend_items = []
-        for i, community_stat in enumerate(top_communities):
-            legend_items.append(
-                html.Div([
-                    html.Span("●", style={"color": community_colors[i % len(community_colors)], "fontSize": "20px"}),
-                    html.Span(f" Community {community_stat['community_id']} ({community_stat['total_members']} nodes)", 
-                             style={"marginLeft": "10px", "fontSize": "12px"})
-                ], style={"marginBottom": "5px"})
-            )
-        
-        # Add node type legend with distinct color coding
-        legend_items.append(html.Div([
-            html.Span("●", style={"color": "#e74c3c", "fontSize": "18px"}),
-            html.Span(" Community Centers", style={"marginLeft": "10px", "fontSize": "12px"}),
-            html.Span(" ●", style={"color": "#c0392b", "fontSize": "14px"}),
-            html.Span(" Drugs (Darker)", style={"marginLeft": "10px", "fontSize": "12px"}),
-            html.Span(" ●", style={"color": "#ec7063", "fontSize": "12px"}),
-            html.Span(" Targets (Lighter)", style={"marginLeft": "10px", "fontSize": "12px"})
-        ], style={"marginTop": "10px", "marginBottom": "5px"}))
-        
-        legend_div = html.Div(legend_items, style={"marginTop": "10px", "textAlign": "center"})
-        
-                # Center the graph container with complete isolation
-        visualizations = html.Div([
-            explanation,
-            html.Div([
-                            dcc.Graph(
-                figure=fig_network, 
-                config={
-                    'displayModeBar': True,
-                    'staticPlot': False,  # Make it interactive
-                    'modeBarButtonsToRemove': ['select2d', 'lasso2d'],
-                    'displaylogo': False,
-                    'responsive': False
-                },
-                id='community_network_graph'
-            )
-            ], style={
-                "display": "flex", 
-                "justifyContent": "center", 
-                "alignItems": "center"
-            }),
-            legend_div
-        ], style={
-            "textAlign": "center"
-        })
-    else:
-        visualizations = html.P("No community data available for visualization.")
-    
-    return results, visualizations, "Network community analysis completed"
+    def outward(n):
+        x, y = pos[n]
+        vert = "top" if y > 0.35 else "bottom" if y < -0.35 else "middle"
+        horiz = "right" if x > 0.35 else "left" if x < -0.35 else "center"
+        return "top center" if (vert, horiz) == ("middle", "center") else f"{vert} {horiz}"
 
-def run_drug_combination_analytics(drug_id=None):
-    """Run drug combination analysis."""
-    # Initialize analytics
-    predictive_analytics = PredictiveInsights(drugs_df, targets_df, dti_df, link_predictor)
-    
-    if drug_id:
-        # Focused analysis on specific drug
-        drug_info = drugs_df[drugs_df['drug_id'] == drug_id].iloc[0]
-        
-        # Get drug combination recommendations
-        combinations = predictive_analytics.drug_combination_recommendations(drug_id)
-        
-        # Get drug-drug interaction warnings
-        interactions = predictive_analytics.drug_drug_interaction_warnings(drug_id)
-        
-        results = html.Div([
-            html.H4(f"Drug Combination Analysis: {drug_info['name']}", 
-                    style={"color": "#2c3e50", "marginBottom": "15px"}),
-            
-            # Explanation section
-            html.Div([
-                html.H5("What This Analysis Shows", style={"color": "#2c3e50", "marginBottom": "10px"}),
-                html.P("This analysis identifies drugs that could work well together (complementary targets) and drugs that might interact poorly (shared targets).", 
-                       style={"fontSize": "12px", "color": "#7f8c8d", "marginBottom": "15px", "fontStyle": "italic"}),
-            ], style={"marginBottom": "20px", "padding": "15px", "backgroundColor": "#e8f4fd", "borderRadius": "5px", "border": "1px solid #3498db"}),
-            
-            html.Div([
-                html.H5("Recommended Combinations", style={"color": "#3498db", "marginBottom": "10px"}),
-                html.P("These drugs target different proteins, potentially enhancing therapeutic effects with minimal side effects:", 
-                       style={"fontSize": "12px", "color": "#7f8c8d", "marginBottom": "10px", "fontStyle": "italic"}),
-                html.Div([
-                    html.Div([
-                        html.P(f"• {combo['name']} (Complementarity: {combo['complementarity_score']})", 
-                               style={"margin": "5px 0", "fontSize": "14px"}),
-                        html.P(f"  Overlap: {combo['overlap']}, Total Targets: {combo['total_targets']}", 
-                               style={"margin": "0 0 10px 20px", "fontSize": "12px", "color": "#7f8c8d"})
-                    ]) for combo in combinations[:5]
-                ]) if combinations else html.P("No combination recommendations found.", style={"color": "#e74c3c", "fontStyle": "italic"})
-            ], style={"marginBottom": "20px", "padding": "15px", "backgroundColor": "#ecf0f1", "borderRadius": "5px"}),
-            
-            html.Div([
-                html.H5("Interaction Warnings", style={"color": "#e74c3c", "marginBottom": "10px"}),
-                html.P("These drugs target the same proteins and may cause adverse interactions or reduced effectiveness:", 
-                       style={"fontSize": "12px", "color": "#7f8c8d", "marginBottom": "10px", "fontStyle": "italic"}),
-                html.Div([
-                    html.Div([
-                        html.P(f"• {interaction['name']} ({interaction['warning_level']} Risk)", 
-                               style={"margin": "5px 0", "fontSize": "14px"}),
-                        html.P(f"  Interaction Strength: {interaction['interaction_strength']:.3f}", 
-                               style={"margin": "0 0 10px 20px", "fontSize": "12px", "color": "#7f8c8d"})
-                    ]) for interaction in interactions[:5]
-                ]) if interactions else html.P("No significant interactions found.", style={"color": "#27ae60", "fontStyle": "italic"})
-            ], style={"padding": "15px", "backgroundColor": "#ecf0f1", "borderRadius": "5px"})
-        ])
-        
-        # Create separate visualizations
-        visualization_components = []
-        
-        # Combination recommendations visualization
-        if combinations:
-            fig_combinations = go.Figure()
-            fig_combinations.add_trace(go.Bar(
-                x=[combo['name'] for combo in combinations[:5]],
-                y=[combo['complementarity_score'] for combo in combinations[:5]],
-                name='Complementarity Score',
-                marker_color='#3498db'
-            ))
-            
-            fig_combinations.update_layout(
-                title="Recommended Drug Combinations",
-                xaxis_title="Drug",
-                yaxis_title="Complementarity Score",
-                height=300,
-                showlegend=False
-            )
-            
-            visualization_components.append(dcc.Graph(figure=fig_combinations))
-        
-        # Interaction warnings visualization
-        if interactions:
-            fig_interactions = go.Figure()
-            fig_interactions.add_trace(go.Bar(
-                x=[interaction['name'] for interaction in interactions[:5]],
-                y=[interaction['interaction_strength'] for interaction in interactions[:5]],
-                name='Interaction Risk',
-                marker_color='#e74c3c'
-            ))
-            
-            fig_interactions.update_layout(
-                title="Drug Interaction Warnings",
-                xaxis_title="Drug",
-                yaxis_title="Interaction Strength",
-                height=300,
-                showlegend=False
-            )
-            
-            visualization_components.append(dcc.Graph(figure=fig_interactions))
-        
-        # Combine visualizations
-        if visualization_components:
-            visualizations = html.Div(visualization_components, style={"display": "flex", "flexDirection": "column", "gap": "20px"})
-        else:
-            visualizations = html.P("No data available for visualization.")
-            
-    else:
-        # General combination insights
-        # Find drugs with highest complementarity potential
-        all_combinations = []
-        for _, drug in drugs_df.head(10).iterrows():  # Sample first 10 drugs
-            combinations = predictive_analytics.drug_combination_recommendations(drug['drug_id'])
-            if combinations:
-                all_combinations.extend(combinations[:3])  # Top 3 for each drug
-        
-        # Sort by complementarity
-        all_combinations.sort(key=lambda x: x['complementarity_score'], reverse=True)
-        
-        results = html.Div([
-            html.H4("Drug Combination Insights", 
-                    style={"color": "#2c3e50", "marginBottom": "15px"}),
-            
-            # Explanation section
-            html.Div([
-                html.H5("What This Analysis Shows", style={"color": "#2c3e50", "marginBottom": "10px"}),
-                html.P("This analysis identifies drugs with the highest potential for beneficial combinations based on their target complementarity.", 
-                       style={"fontSize": "12px", "color": "#7f8c8d", "marginBottom": "15px", "fontStyle": "italic"}),
-            ], style={"marginBottom": "20px", "padding": "15px", "backgroundColor": "#e8f4fd", "borderRadius": "5px", "border": "1px solid #3498db"}),
-            
-            html.Div([
-                html.H5("Top Combination Opportunities", style={"color": "#3498db", "marginBottom": "10px"}),
-                html.P("These drugs have the highest complementarity scores, meaning they target different proteins and could work well together:", 
-                       style={"fontSize": "12px", "color": "#7f8c8d", "marginBottom": "10px", "fontStyle": "italic"}),
-                html.Div([
-                    html.Div([
-                        html.P(f"• {combo['name']} (Complementarity: {combo['complementarity_score']})", 
-                               style={"margin": "5px 0", "fontSize": "14px"})
-                    ]) for combo in all_combinations[:10]
-                ]) if all_combinations else html.P("No combination opportunities found.", style={"color": "#e74c3c", "fontStyle": "italic"})
-            ], style={"padding": "15px", "backgroundColor": "#ecf0f1", "borderRadius": "5px"})
-        ])
-        
-        # Create visualization
-        if all_combinations:
-            fig = go.Figure()
-            fig.add_trace(go.Bar(
-                x=[combo['name'] for combo in all_combinations[:10]],
-                y=[combo['complementarity_score'] for combo in all_combinations[:10]],
-                name='Complementarity Score'
-            ))
-            
-            fig.update_layout(
-                title="Top Drug Combination Opportunities",
-                xaxis_title="Drug",
-                yaxis_title="Complementarity Score",
-                height=400
-            )
-            
-            visualizations = dcc.Graph(figure=fig)
-        else:
-            visualizations = html.P("No combination data available for visualization.")
-    
-    return results, visualizations, "Drug combination analysis completed"
+    def nodes(ids, drug, size, fill, line_color, line_width, texts, textpos=None):
+        if not ids:
+            return
+        textpos = textpos or [outward(n) for n in ids]
+        hover = [f"<b>{G.nodes[n]['name']}</b><br>{'drug' if drug else 'target'} · {n}"
+                 f"<br>{G.degree(n)} known {'targets' if drug else 'drugs'}" for n in ids]
+        fig.add_trace(go.Scatter(
+            x=[pos[n][0] for n in ids], y=[pos[n][1] for n in ids], mode="markers+text", cliponaxis=False,
+            customdata=ids, hovertext=hover, hoverinfo="text", text=texts, textposition=textpos,
+            textfont=dict(family="Archivo", size=12, color=INK),
+            marker=dict(symbol="circle" if drug else "square", size=size, color=fill,
+                        line=dict(color=line_color, width=line_width))))
 
-# Removed duplicate callbacks - progress is now handled in the main run_ml_analysis callback
+    partner_is_drug = not center_is_drug
+    partner_fill = BLUE if partner_is_drug else ORANGE
+    same_fill = BLUE if center_is_drug else ORANGE
 
-@app.callback(
-    Output("degree_distribution", "figure"),
-    Input("search_dropdown", "value")
-)
-def update_degree_distribution(selected_node):
-    """Update degree distribution plot."""
-    if G is None:
-        return go.Figure()
-    
-    # Calculate degree distribution
-    degrees = [d for n, d in G.degree()]
-    
-    # Create histogram
-    fig = go.Figure()
-    fig.add_trace(go.Histogram(
-        x=degrees,
-        nbinsx=50,
-        name='Degree Distribution',
-        marker_color='#3498db',
-        opacity=0.7
-    ))
-    
+    if "shared" in show:
+        nodes(nb["related"], center_is_drug, 14, same_fill, CARD, 2,
+              [label(n) for n in nb["related"]])
+    if "known" in show:
+        many = len(nb["known"]) > 12
+        top_labels = set(sorted(nb["known"], key=lambda n: -G.degree(n))[:12])
+        nodes(nb["known"], partner_is_drug, 16, partner_fill, CARD, 2,
+              [label(n) if (not many or n in top_labels) else "" for n in nb["known"]])
+    if "predicted" in show and nb["predicted"]:
+        ids = [p for p, _ in nb["predicted"]]
+        nodes(ids, partner_is_drug, 16, CARD, PURPLE, 3,
+              [f"{label(p)} · {s:.2f}" for p, s in nb["predicted"]])
+    nodes([center], center_is_drug, 30, same_fill, INK, 3, [""], "top center")
+    fig.add_annotation(x=0, y=0.22, text=f"<b>{label(center)}</b>", showarrow=False, yanchor="bottom",
+                       font=dict(family="Archivo", size=15, color=INK), bgcolor=CARD)
+
     fig.update_layout(
-        title="Degree Distribution",
-        xaxis_title="Degree",
-        yaxis_title="Frequency",
-        showlegend=False,
-        height=400
+        showlegend=False, paper_bgcolor=CARD, plot_bgcolor=CARD, dragmode="pan",
+        margin=dict(l=70, r=80, t=24, b=24), font=dict(family="Archivo", color=INK),
+        xaxis=dict(visible=False, range=[-2.6, 2.6]),
+        yaxis=dict(visible=False, range=[-2.5, 2.5]),
+        hoverlabel=dict(bgcolor=CARD, bordercolor=INK, font=dict(family="Archivo", color=INK)),
     )
-    
     return fig
 
+
+def empty_figure(message):
+    fig = go.Figure()
+    fig.add_annotation(text=message, showarrow=False, font=dict(family="Archivo", size=15,
+                                                                color=SECONDARY))
+    fig.update_layout(paper_bgcolor=CARD, plot_bgcolor=CARD, xaxis=dict(visible=False),
+                      yaxis=dict(visible=False), margin=dict(l=8, r=8, t=8, b=8))
+    return fig
+
+
+def score_row(name, full_name, score, href, reason):
+    return html.Div([
+        html.Div([
+            dcc.Link(name, href=href, className="row-name"),
+            html.Span(html.Span(style={"width": f"{score * 100:.0f}%"}, className="bar-fill purple"),
+                      className="bar-track"),
+            html.Span(f"{score:.2f}", className="row-score"),
+        ], className="score-row"),
+        html.Div(full_name, className="full-name") if full_name else None,
+        html.Div(reason, className="reason"),
+    ], className="score-item")
+
+
+def details_panel(node, nb, scores, min_score):
+    drug = is_drug(node)
+    name = G.nodes[node]["name"]
+    if drug:
+        info = DRUG_INFO.loc[node]
+        status = ", ".join(g for g in str(info["groups"]).split(",") if g) or "no status listed"
+        meta = f"{node} · {status} · {info['type']}"
+        note = None if node in FEATURED else html.P(
+            "Not featured (not an approved small molecule, or an ion, salt or supplement). "
+            "Its predictions are shown but it is left out of the predictions view.", className="note")
+    else:
+        info = TARGET_INFO.loc[node]
+        meta = f"UniProt {node}" + (f" · gene {info['gene_symbol']}" if info["gene_symbol"] else "")
+        note = None
+    ranked = [(p, s) for p, s in sorted(scores.items(), key=lambda x: (-x[1], x[0])) if s >= min_score]
+    heading = "Suggested new targets" if drug else "Suggested drugs (approved small molecules)"
+    if ranked:
+        rows = [score_row(label(p), None if label(p) == G.nodes[p]["name"] else G.nodes[p]["name"], s,
+                          f"/?{urlencode({'node': p})}", evidence(G, node, p, EMB, label=label))
+                for p, s in ranked[:5]]
+        more = mono(f"{len(ranked)} candidates at {min_score:.2f} or above; top 5 shown")
+    else:
+        rows = [html.P(f"No suggestions at {min_score:.2f} or above. Lower the minimum score to see "
+                       "weaker candidates.", className="empty")]
+        more = None
+    return html.Div([
+        html.Div([mono(f"selected {'drug' if drug else 'target'}"), html.H2(name),
+                  html.Div(meta, className="secondary small")]),
+        note,
+        html.Div([html.Span(fmt_int(nb["known_total"]), className="stat-small"),
+                  f" known {'targets' if drug else 'drugs'}"], className="secondary"),
+        html.Div([
+            html.Div(heading, className="field-title"),
+            html.Div("Ranked by the model's score. A score is a ranking signal, not a probability "
+                     "that the interaction is real; many top scores tie near 1.00.",
+                     className="secondary small"),
+        ]),
+        html.Div(rows, className="score-list"),
+        more,
+    ], className="details-inner")
+
+
+# ----- predictions view ------------------------------------------------------
+
+def predictions_view():
+    if PREDICTIONS is None:
+        return html.Section(html.Div([
+            html.H2("Predicted links"),
+            html.P("No predictions yet. Run: python predict_links.py", className="empty"),
+        ], className="card"))
+    top = PREDICTIONS[PREDICTIONS["rank"] == 1].sort_values(
+        ["score", "support", "drug_id"], ascending=[False, False, True]).head(40)
+    rows = [html.Tr([
+        html.Td(dcc.Link(DRUG_INFO.at[r.drug_id, "name"], href=f"/?{urlencode({'node': r.drug_id})}")),
+        html.Td([html.Span(label(r.target_id), className="strong"), html.Br(),
+                 html.Span(TARGET_INFO.at[r.target_id, "name"], className="secondary small")]),
+        html.Td(f"{r.score:.2f}", className="num"),
+        html.Td(r.evidence, className="secondary small"),
+    ]) for r in top.itertuples()]
+    n_drugs = PREDICTIONS["drug_id"].nunique()
+    return html.Section(html.Div([
+        html.Div([html.H2("Top suggestion for each drug, strongest first"),
+                  mono(f"{len(top)} of {n_drugs:,} featured drugs shown")], className="card-head"),
+        html.P("Each featured drug's highest-scoring target it has no recorded interaction with. "
+               "Featured means an approved small molecule, excluding ions, salts and supplements. "
+               "Ties in score are broken by how many drugs support the link through a shared target. "
+               "These are hypotheses ranked by a model, not findings.", className="secondary"),
+        html.Div(html.Table([
+            html.Thead(html.Tr([html.Th("Drug"), html.Th("Suggested target"), html.Th("Score"),
+                                html.Th("Support in the data")])),
+            html.Tbody(rows),
+        ], className="table pred-table"), className="table-wrap"),
+    ], className="card"))
+
+
+# ----- evaluation view -------------------------------------------------------
+
+def metric_bar(name, block, primary, key="roc_auc"):
+    value = block[key]
+    lo, hi = block[f"{key}_ci95"] if key == "roc_auc" else block["average_precision_ci95"]
+    return html.Div([
+        html.Span(name, className="bar-label"),
+        html.Span([
+            html.Span(style={"width": f"{value * 100:.1f}%"},
+                      className="bar-fill " + ("blue" if primary else "grey")),
+            html.Span(style={"left": f"{lo * 100:.1f}%", "width": f"{max(hi - lo, 0.002) * 100:.1f}%"},
+                      className="ci", title=f"95% interval {lo:.3f}–{hi:.3f}"),
+        ], className="bar-track tall"),
+        html.Span([html.Strong(f"{value:.2f}"), html.Span(f" {lo:.2f}–{hi:.2f}", className="mono ci-text")],
+                  className="bar-value"),
+    ], className="bar-row")
+
+
+def split_panel(kind, split):
+    def block(m):
+        return split["random_forest"] if m == "random_forest" else split["baselines"][m]
+
+    c = split["counts"]
+    test_line = (f"{c['test_positives']:,} held-out interactions and {c['test_negatives']:,} "
+                 "sampled non-interactions")
+    if kind == "drug_holdout":
+        test_line += f" across {c['test_drugs']:,} test drugs"
+    ap_rows = [html.Tr([html.Td(METHOD_LABELS[m]),
+                        html.Td(f"{block(m)['average_precision']:.3f}", className="num"),
+                        html.Td("{:.3f}–{:.3f}".format(*block(m)["average_precision_ci95"]),
+                                className="num mono")]) for m in SHOWN_METHODS]
+    return html.Div([
+        html.H3(SPLIT_LABELS[kind]),
+        html.P(split["description"] + ".", className="secondary small"),
+        html.Div("ROC AUC on held-out pairs", className="field-title"),
+        *[metric_bar(METHOD_LABELS[m], block(m), m == "random_forest") for m in SHOWN_METHODS],
+        mono(test_line + " · bars show the score, the dark band its 95% interval"),
+        html.Details([
+            html.Summary("Average precision"),
+            html.Table([html.Thead(html.Tr([html.Th("Method"), html.Th("AP"), html.Th("95% interval")])),
+                        html.Tbody(ap_rows)], className="table compact"),
+        ]),
+    ], className="split")
+
+
+def evaluation_view():
+    splits = RESULTS["splits"]
+    rf = {k: v["random_forest"] for k, v in splits.items()}
+    return html.Section(html.Div([
+        html.Div([html.H2("How good are the predictions?"),
+                  mono(f"from results.json · run {RESULTS.get('run_date', 'date not recorded')} · "
+                       f"commit {RESULTS['git_commit']}")], className="card-head"),
+        html.Div([split_panel(k, v) for k, v in splits.items()], className="splits"),
+        html.P("The random split scores lower mainly because hiding 40% of edges at random strands "
+               "many one-target drugs with no edges left, so the model sees nothing about them; the "
+               "per-drug split only tests drugs with two or more targets and leaves each at least one.",
+               className="why"),
+        html.Div([
+            html.H3("Read this before trusting it"),
+            html.Ul([
+                html.Li([html.Strong("Not by date. "),
+                         "DrugBank has no per-interaction dates, so neither split is temporal. Both "
+                         "test drugs and targets the model has already seen in training."]),
+                html.Li([html.Strong("No unseen drugs. "),
+                         "Node2Vec only embeds nodes that have edges, so a drug with no known targets "
+                         "cannot be scored. These numbers say nothing about brand-new compounds."]),
+                html.Li([html.Strong("Negatives are unmeasured, not disproven. "),
+                         "They are pairs with no recorded interaction; some are real interactions "
+                         "nobody has tested. The random split samples them uniformly; the per-drug "
+                         "split uses the same drug and a target of similar degree."]),
+                html.Li([html.Strong("Balanced test sets. "),
+                         "One negative per positive, so average precision near 0.5 is chance. Real "
+                         "screening has far more non-interactions, and precision would be lower."]),
+                html.Li([html.Strong("Scores are rankings. "),
+                         f"Brier scores are {rf['random']['brier_score']:.3f} (random) and "
+                         f"{rf['drug_holdout']['brier_score']:.3f} (per-drug) on balanced data; do not "
+                         "read a score as the chance an interaction is real."]),
+                html.Li([html.Strong("Intervals cover test-pair sampling only. "),
+                         f"{splits['random']['bootstrap_resamples']:,} bootstrap resamples of the test "
+                         "pairs; they do not cover a different split seed or a different DrugBank "
+                         "release."]),
+            ]),
+        ], className="caveats"),
+    ], className="card"))
+
+
+# ----- methods view ----------------------------------------------------------
+
+def methods_view():
+    ds = RESULTS["dataset"]
+    r = RESULTS["splits"]["random"]["counts"]
+    return html.Section(html.Div([
+        html.H2("Methods"),
+        html.H3("Data"),
+        html.P(f"A DrugBank full-database export ({RESULTS['source']['file']}) is parsed into drugs, "
+               f"human targets and interactions. Of {ds['drugs']:,} drug entries, "
+               f"{ds['drugs_with_human_target']:,} have at least one human target; there are "
+               f"{ds['human_targets']:,} human targets and {ds['interactions']:,} interactions. Human "
+               "means NCBI taxonomy 9606 on the target's polypeptide. DrugBank is licensed, so no "
+               "data or derived table is in the repository."),
+        html.H3("Graph and embeddings"),
+        html.P("Drugs and targets form a bipartite graph: edges only join a drug to a target. "
+               "Node2Vec (128 dimensions, 10 walks of length 40 per node, p = q = 1, window 10, "
+               "seed 42) embeds every node that has an edge. For each evaluation, Node2Vec is trained "
+               "only on that split's message graph, so held-out edges cannot leak through the "
+               "embeddings."),
+        html.H3("Model"),
+        html.P("A random forest (100 trees) scores a drug-target pair from 12 features: both "
+               "degrees, preferential attachment, shortest-path length, neighbourhood size, the "
+               "embedding dot product and each embedding's mean, plus four neighbourhood-overlap "
+               "features kept from the first version that are always 0 here (see below)."),
+        html.H3("Evaluation splits"),
+        html.P(f"Random edge split: known edges are shuffled (seed 42) and split 60/20/20 into a "
+               f"message graph ({r['message_edges']:,} edges) that features are computed on, training "
+               "positives and test positives; negatives are uniformly random unlinked pairs among "
+               "drugs and targets that have at least one interaction."),
+        html.P("Per-drug split (controls for target popularity): 20% of drugs with two or more "
+               "targets are test drugs and half of each one's edges are hidden; another 20% supply "
+               "training positives the same way. Every positive is paired with a negative for the "
+               "same drug and a target in the same degree bin (log2 of its degree), so preferring "
+               "popular targets earns nothing."),
+        html.H3("Baselines"),
+        html.P("Length-3 paths counts drug → target′ → drug′ → target routes. Preferential "
+               "attachment multiplies the two degrees. Chance gives every pair the same score."),
+        html.P("Common neighbours is not shown. In a bipartite graph a drug's neighbours are all "
+               "targets and a target's are all drugs, so a drug and a target never share one: the "
+               "count is 0 for every pair, it ties everything and scores exactly 0.5. Length-3 paths "
+               "is its bipartite counterpart. The same holds for Jaccard, Adamic-Adar and resource "
+               "allocation, which is why those four model features are always 0."),
+        html.H3("Suggestions and evidence"),
+        html.P("The app's model is trained on all known edges (80% as the message graph, 20% as "
+               "training positives) and scores every target a drug has no recorded interaction "
+               "with. The one-line support under each suggestion is read from the data, not from "
+               "the model: drugs that bind the suggested target and share a target with the "
+               "selected drug, or, failing that, the drug's 25 nearest neighbours in the embedding "
+               "that bind it."),
+        html.H3("What the first version got wrong"),
+        html.Ul([
+            html.Li([html.Strong("Leakage. "),
+                     "Training positives were described by a graph that still contained the edge "
+                     "being predicted, and Node2Vec was trained on the full graph, test edges "
+                     "included."]),
+            html.Li([html.Strong("Easy negatives. "),
+                     "Negatives were drawn from every DrugBank drug, most of which have no human "
+                     "target, so degree alone told them apart from real interactions."]),
+            html.Li([html.Strong("Padded baselines. "),
+                     "Common neighbours, Jaccard and Adamic-Adar were always 0, so the code replaced "
+                     "them with small random numbers and reported the resulting ~0.50 as a baseline."]),
+            html.Li([html.Strong("Placeholder embeddings. "),
+                     "When no embeddings loaded, similarity results were computed from random "
+                     "vectors and shown as real."]),
+            html.Li([html.Strong("A species filter that matched nothing. "),
+                     "Targets were kept only if labelled \"Homo sapiens\"; this DrugBank release says "
+                     "\"Humans\", so the filter dropped every interaction."]),
+            html.Li([html.Strong("Labels. "),
+                     "The interface showed a hard-coded \"ROC AUC: 1.0000\" and called a random split "
+                     "temporal. An earlier figure of 0.93 ROC AUC could not be reproduced."]),
+        ]),
+        html.H3("Reproduce"),
+        html.Pre("\n".join(["make run", "", "# which runs, as needed:"] + RESULTS["commands"]
+                           + ["python predict_links.py", "python app.py"]), className="code"),
+    ], className="card prose"))
+
+
+# ----- app -------------------------------------------------------------------
+
+app = dash.Dash(__name__, title="Drug–target interaction network", update_title=None,
+                suppress_callback_exceptions=True,
+                meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}])
+server = app.server
+
+app.layout = html.Div([
+    dcc.Location(id="url"),
+    html.Div([header(), html.Main(id="page")], className="wrap"),
+], className="page")
+
+
+@app.callback(Output("page", "children"), Output("nav", "children"), Input("url", "pathname"),
+              State("url", "search"))
+def route(pathname, search):
+    pathname = pathname or "/"
+    if pathname == "/predictions":
+        return predictions_view(), nav(pathname)
+    if pathname == "/evaluation":
+        return evaluation_view(), nav(pathname)
+    if pathname == "/methods":
+        return methods_view(), nav(pathname)
+    node = parse_qs((search or "").lstrip("?")).get("node", [DEFAULT_NODE])[0]
+    if node not in G or G.degree(node) == 0:
+        node = DEFAULT_NODE
+    return explore_view(node), nav("/")
+
+
+@app.callback(Output("node-search", "value"), Input("nb-graph", "clickData"),
+              State("node-search", "value"), prevent_initial_call=True)
+def recentre(click, current):
+    if click and click["points"] and click["points"][0].get("customdata"):
+        return click["points"][0]["customdata"]
+    return current
+
+
+@app.callback(Output("table-toggle", "children"), Output("nb-table", "style"),
+              Output("nb-graph", "style"), Input("table-toggle", "n_clicks"))
+def toggle_table(n):
+    if n % 2:
+        return "view as network", {"display": "block"}, {"display": "none"}
+    return "view as table", {"display": "none"}, {}
+
+
+@app.callback(Output("min-score-label", "children"), Input("min-score", "value"))
+def min_score_label(v):
+    return f"{v:.2f} and above"
+
+
+@app.callback(Output("nb-graph", "figure"), Output("nb-title", "children"), Output("nb-meta", "children"),
+              Output("details", "children"), Output("nb-table", "children"),
+              Input("node-search", "value"), Input("show", "value"), Input("min-score", "value"))
+def render(node, show, min_score):
+    if not node:
+        msg = "Search for a drug or target to see its neighbourhood."
+        return (empty_figure(msg), "No selection", "", html.P(msg, className="empty"),
+                html.P(msg, className="empty"))
+    scores = suggestions(node)
+    nb = neighbourhood(G, node, scores, min_score)
+    drug = is_drug(node)
+    meta = (f"{nb['known_total']} known {'targets' if drug else 'drugs'}"
+            + (f" (showing {len(nb['known'])})" if nb["known_total"] > len(nb["known"]) else "")
+            + f" · {len(nb['predicted'])} predicted · {len(nb['related'])} related "
+            + ("drugs" if drug else "targets"))
+    table = edge_table(G, nb)
+    table_el = html.Div(html.Table([
+        html.Thead(html.Tr([html.Th(c.capitalize()) for c in table.columns])),
+        html.Tbody([html.Tr([html.Td(v) for v in row]) for row in table.itertuples(index=False)]),
+    ], className="table compact"), className="table-wrap")
+    return (network_figure(nb, show or []), f"{G.nodes[node]['name']} and its neighbourhood", meta,
+            details_panel(node, nb, scores, min_score), table_el)
+
+
 if __name__ == "__main__":
-    print("Starting DTI Explorer Pro - Plotly Edition...")
-    print("Loaded data:")
-    if G is not None:
-        print(f"  - Graph: {len(G.nodes())} nodes, {len(G.edges())} edges")
-    if drugs_df is not None:
-        print(f"  - Drugs: {len(drugs_df):,}")
-    if targets_df is not None:
-        print(f"  - Targets: {len(targets_df):,}")
-    print("Starting web server...")
     # Local only. Dash debug mode exposes an interactive debugger, so it is off
     # unless DASH_DEBUG=1 is set.
     app.run(debug=os.environ.get("DASH_DEBUG") == "1", host="127.0.0.1",
