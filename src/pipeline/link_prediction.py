@@ -52,11 +52,11 @@ SPLIT_DESCRIPTIONS = {
                   "and are tested; another 20% are made cold the same way for training; negatives "
                   "use the same drug and a degree-matched target"),
     "final_cold": ("All edges, whole-drug protocol: every edge of 25% of drugs hidden for "
-                   "training (a quarter of those drugs held back for validation and calibration); "
-                   "no test set"),
+                   "training, skipping drugs whose removal would leave a target with no binder "
+                   "(a quarter of those drugs held back for validation and calibration); no test set"),
     "final": ("All edges, per-drug protocol: half the edges of 40% of drugs with 2+ targets "
               "are training positives (a quarter of those drugs held back for validation and "
-              "calibration); every drug keeps at least one edge; no test set"),
+              "calibration); every drug and every target keeps at least one edge; no test set"),
 }
 
 
