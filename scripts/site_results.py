@@ -42,8 +42,12 @@ def spread(model, drugs, threshold, preds):
         "max_candidates_for_one_drug": int(at.max()),
         "p90_candidates": float(np.percentile(at, 90)),
         "most_common_top_suggestion_drug_count": int(top1["target_id"].value_counts().iloc[0]),
+        "top_suggestions_with_no_evidence": int((top1["evidence"] == NO_EVIDENCE).sum()),
         "share_of_top_suggestions_with_no_evidence": round(float(
             (top1["evidence"] == NO_EVIDENCE).mean()), 3),
+        "top5_suggestions_with_no_evidence": int(
+            (preds[preds["rank"] <= 5]["evidence"] == NO_EVIDENCE).sum()),
+        "top5_suggestions": int((preds["rank"] <= 5).sum()),
         "share_of_top_suggestions_on_targets_isolated_in_training": round(float(
             top1["target_id"].isin(isolated).mean()), 3),
         "share_of_drugs_with_tied_scores_in_top_5": round(float(ties.mean()), 3),
