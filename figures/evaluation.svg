@@ -1,68 +1,107 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 552" width="920" height="552" role="img" aria-labelledby="t d" font-family="Archivo, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 872" width="920" height="872" role="img" aria-labelledby="t d" font-family="Archivo, sans-serif">
 <title id="t">ROC AUC on held-out drug-target pairs, by split and method</title>
-<desc id="d">Dots are ROC AUC on held-out pairs; lines are 95% bootstrap intervals. Source: results.json, commit ab9d58a.</desc>
-<rect width="920" height="552" fill="#F6F2E8"/>
+<desc id="d">Dots are ROC AUC on held-out pairs; lines are 95% bootstrap intervals. Source: results.json, commit 7b158a0.</desc>
+<rect width="920" height="872" fill="#F6F2E8"/>
 <text x="24" y="34" font-size="20" font-weight="700" fill="#231F1B">How well does the model rank held-out interactions?</text>
 <text x="24" y="56" font-size="14" fill="#3D372F">ROC AUC on held-out pairs (1 known interaction : 1 sampled non-interaction). Lines: 95% bootstrap interval.</text>
-<text x="24" y="92" font-size="15" font-weight="700" fill="#231F1B">Random edge split</text>
-<line x1="403.3" x2="403.3" y1="102" y2="252" stroke="#B3A992" stroke-width="1"/>
-<line x1="476.7" x2="476.7" y1="102" y2="252" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
-<line x1="550.0" x2="550.0" y1="102" y2="252" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
-<line x1="623.3" x2="623.3" y1="102" y2="252" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
-<line x1="696.7" x2="696.7" y1="102" y2="252" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
-<line x1="770.0" x2="770.0" y1="102" y2="252" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
-<text x="24" y="121" font-size="14" font-weight="600" fill="#231F1B">Random forest, degree-matched negatives (app)</text>
-<line x1="574.8" x2="591.7" y1="116" y2="116" stroke="#1F6FB5" stroke-width="3" stroke-linecap="round"/>
-<circle cx="583.7" cy="116" r="6" fill="#1F6FB5"/>
-<text x="786" y="121" font-size="14" fill="#231F1B"><tspan font-weight="700">0.746</tspan><tspan fill="#3D372F" font-size="12"> 0.734–0.757</tspan></text>
-<text x="24" y="151" font-size="14" font-weight="600" fill="#231F1B">Random forest, uniform negatives</text>
-<line x1="687.7" x2="698.5" y1="146" y2="146" stroke="#7A4E9E" stroke-width="3" stroke-linecap="round"/>
-<circle cx="693.1" cy="146" r="6" fill="#7A4E9E"/>
-<text x="786" y="151" font-size="14" fill="#231F1B"><tspan font-weight="700">0.895</tspan><tspan fill="#3D372F" font-size="12"> 0.888–0.902</tspan></text>
-<text x="24" y="181" font-size="14" font-weight="400" fill="#231F1B">Length-3 paths</text>
-<line x1="555.9" x2="567.5" y1="176" y2="176" stroke="#8A8171" stroke-width="3" stroke-linecap="round"/>
-<circle cx="561.7" cy="176" r="6" fill="#8A8171"/>
-<text x="786" y="181" font-size="14" fill="#231F1B"><tspan font-weight="700">0.716</tspan><tspan fill="#3D372F" font-size="12"> 0.708–0.724</tspan></text>
-<text x="24" y="211" font-size="14" font-weight="400" fill="#231F1B">Preferential attachment</text>
-<line x1="496.7" x2="515.5" y1="206" y2="206" stroke="#8A8171" stroke-width="3" stroke-linecap="round"/>
-<circle cx="505.9" cy="206" r="6" fill="#8A8171"/>
-<text x="786" y="211" font-size="14" fill="#231F1B"><tspan font-weight="700">0.640</tspan><tspan fill="#3D372F" font-size="12"> 0.627–0.653</tspan></text>
-<text x="24" y="241" font-size="14" font-weight="400" fill="#231F1B">Chance</text>
+<text x="24" y="92" font-size="15" font-weight="700" fill="#231F1B">Whole-drug holdout (unseen drugs)</text>
+<line x1="403.3" x2="403.3" y1="102" y2="282" stroke="#B3A992" stroke-width="1"/>
+<line x1="476.7" x2="476.7" y1="102" y2="282" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
+<line x1="550.0" x2="550.0" y1="102" y2="282" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
+<line x1="623.3" x2="623.3" y1="102" y2="282" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
+<line x1="696.7" x2="696.7" y1="102" y2="282" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
+<line x1="770.0" x2="770.0" y1="102" y2="282" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="24" y="121" font-size="14" font-weight="600" fill="#231F1B">Attribute model (v3, the app)</text>
+<line x1="655.0" x2="667.4" y1="116" y2="116" stroke="#1F6FB5" stroke-width="3" stroke-linecap="round"/>
+<circle cx="661.3" cy="116" r="6" fill="#1F6FB5"/>
+<text x="786" y="121" font-size="14" fill="#231F1B"><tspan font-weight="700">0.852</tspan><tspan fill="#3D372F" font-size="12"> 0.843–0.860</tspan></text>
+<text x="24" y="151" font-size="14" font-weight="600" fill="#231F1B">Graph-only model (v2)</text>
+<line x1="427.8" x2="446.4" y1="146" y2="146" stroke="#7A4E9E" stroke-width="3" stroke-linecap="round"/>
+<circle cx="436.6" cy="146" r="6" fill="#7A4E9E"/>
+<text x="786" y="151" font-size="14" fill="#231F1B"><tspan font-weight="700">0.545</tspan><tspan fill="#3D372F" font-size="12"> 0.533–0.559</tspan></text>
+<text x="24" y="181" font-size="14" font-weight="400" fill="#231F1B">Structural nearest neighbour</text>
+<line x1="533.9" x2="552.9" y1="176" y2="176" stroke="#8A8171" stroke-width="3" stroke-linecap="round"/>
+<circle cx="543.9" cy="176" r="6" fill="#8A8171"/>
+<text x="786" y="181" font-size="14" fill="#231F1B"><tspan font-weight="700">0.692</tspan><tspan fill="#3D372F" font-size="12"> 0.678–0.704</tspan></text>
+<text x="24" y="211" font-size="14" font-weight="400" fill="#231F1B">Length-3 paths</text>
+<line x1="403.3" x2="403.3" y1="206" y2="206" stroke="#8A8171" stroke-width="3" stroke-linecap="round"/>
+<circle cx="403.3" cy="206" r="6" fill="#8A8171"/>
+<text x="786" y="211" font-size="14" fill="#231F1B"><tspan font-weight="700">0.500</tspan><tspan fill="#3D372F" font-size="12"> 0.500–0.500</tspan></text>
+<text x="24" y="241" font-size="14" font-weight="400" fill="#231F1B">Preferential attachment</text>
 <line x1="403.3" x2="403.3" y1="236" y2="236" stroke="#8A8171" stroke-width="3" stroke-linecap="round"/>
 <circle cx="403.3" cy="236" r="6" fill="#8A8171"/>
 <text x="786" y="241" font-size="14" fill="#231F1B"><tspan font-weight="700">0.500</tspan><tspan fill="#3D372F" font-size="12"> 0.500–0.500</tspan></text>
-<text x="24" y="288" font-size="15" font-weight="700" fill="#231F1B">Per-drug split (controls for target popularity)</text>
-<line x1="403.3" x2="403.3" y1="298" y2="448" stroke="#B3A992" stroke-width="1"/>
-<line x1="476.7" x2="476.7" y1="298" y2="448" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
-<line x1="550.0" x2="550.0" y1="298" y2="448" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
-<line x1="623.3" x2="623.3" y1="298" y2="448" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
-<line x1="696.7" x2="696.7" y1="298" y2="448" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
-<line x1="770.0" x2="770.0" y1="298" y2="448" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
-<text x="24" y="317" font-size="14" font-weight="600" fill="#231F1B">Random forest, degree-matched negatives (app)</text>
-<line x1="680.3" x2="698.0" y1="312" y2="312" stroke="#1F6FB5" stroke-width="3" stroke-linecap="round"/>
-<circle cx="689.5" cy="312" r="6" fill="#1F6FB5"/>
-<text x="786" y="317" font-size="14" fill="#231F1B"><tspan font-weight="700">0.890</tspan><tspan fill="#3D372F" font-size="12"> 0.878–0.902</tspan></text>
-<text x="24" y="347" font-size="14" font-weight="600" fill="#231F1B">Random forest, uniform negatives</text>
-<line x1="598.7" x2="625.0" y1="342" y2="342" stroke="#7A4E9E" stroke-width="3" stroke-linecap="round"/>
-<circle cx="612.4" cy="342" r="6" fill="#7A4E9E"/>
-<text x="786" y="347" font-size="14" fill="#231F1B"><tspan font-weight="700">0.785</tspan><tspan fill="#3D372F" font-size="12"> 0.766–0.802</tspan></text>
-<text x="24" y="377" font-size="14" font-weight="400" fill="#231F1B">Length-3 paths</text>
-<line x1="627.1" x2="648.7" y1="372" y2="372" stroke="#8A8171" stroke-width="3" stroke-linecap="round"/>
-<circle cx="638.4" cy="372" r="6" fill="#8A8171"/>
-<text x="786" y="377" font-size="14" fill="#231F1B"><tspan font-weight="700">0.821</tspan><tspan fill="#3D372F" font-size="12"> 0.805–0.835</tspan></text>
-<text x="24" y="407" font-size="14" font-weight="400" fill="#231F1B">Preferential attachment</text>
-<line x1="388.4" x2="421.4" y1="402" y2="402" stroke="#8A8171" stroke-width="3" stroke-linecap="round"/>
-<circle cx="405.2" cy="402" r="6" fill="#8A8171"/>
-<text x="786" y="407" font-size="14" fill="#231F1B"><tspan font-weight="700">0.502</tspan><tspan fill="#3D372F" font-size="12"> 0.480–0.525</tspan></text>
-<text x="24" y="437" font-size="14" font-weight="400" fill="#231F1B">Chance</text>
-<line x1="403.3" x2="403.3" y1="432" y2="432" stroke="#8A8171" stroke-width="3" stroke-linecap="round"/>
-<circle cx="403.3" cy="432" r="6" fill="#8A8171"/>
-<text x="786" y="437" font-size="14" fill="#231F1B"><tspan font-weight="700">0.500</tspan><tspan fill="#3D372F" font-size="12"> 0.500–0.500</tspan></text>
-<text x="403.3" y="466" font-size="12" text-anchor="middle" fill="#3D372F">0.5</text>
-<text x="476.7" y="466" font-size="12" text-anchor="middle" fill="#3D372F">0.6</text>
-<text x="550.0" y="466" font-size="12" text-anchor="middle" fill="#3D372F">0.7</text>
-<text x="623.3" y="466" font-size="12" text-anchor="middle" fill="#3D372F">0.8</text>
-<text x="696.7" y="466" font-size="12" text-anchor="middle" fill="#3D372F">0.9</text>
-<text x="770.0" y="466" font-size="12" text-anchor="middle" fill="#3D372F">1.0</text>
-<text x="550.0" y="488" font-size="13" text-anchor="middle" fill="#3D372F">ROC AUC (0.5 = chance, 1.0 = perfect ranking)</text>
+<text x="24" y="271" font-size="14" font-weight="400" fill="#231F1B">Chance</text>
+<line x1="403.3" x2="403.3" y1="266" y2="266" stroke="#8A8171" stroke-width="3" stroke-linecap="round"/>
+<circle cx="403.3" cy="266" r="6" fill="#8A8171"/>
+<text x="786" y="271" font-size="14" fill="#231F1B"><tspan font-weight="700">0.500</tspan><tspan fill="#3D372F" font-size="12"> 0.500–0.500</tspan></text>
+<text x="24" y="318" font-size="15" font-weight="700" fill="#231F1B">Per-drug split (controls for target popularity)</text>
+<line x1="403.3" x2="403.3" y1="328" y2="508" stroke="#B3A992" stroke-width="1"/>
+<line x1="476.7" x2="476.7" y1="328" y2="508" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
+<line x1="550.0" x2="550.0" y1="328" y2="508" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
+<line x1="623.3" x2="623.3" y1="328" y2="508" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
+<line x1="696.7" x2="696.7" y1="328" y2="508" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
+<line x1="770.0" x2="770.0" y1="328" y2="508" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="24" y="347" font-size="14" font-weight="600" fill="#231F1B">Attribute model (v3, the app)</text>
+<line x1="695.3" x2="711.8" y1="342" y2="342" stroke="#1F6FB5" stroke-width="3" stroke-linecap="round"/>
+<circle cx="704.2" cy="342" r="6" fill="#1F6FB5"/>
+<text x="786" y="347" font-size="14" fill="#231F1B"><tspan font-weight="700">0.910</tspan><tspan fill="#3D372F" font-size="12"> 0.898–0.921</tspan></text>
+<text x="24" y="377" font-size="14" font-weight="600" fill="#231F1B">Graph-only model (v2)</text>
+<line x1="680.3" x2="698.0" y1="372" y2="372" stroke="#7A4E9E" stroke-width="3" stroke-linecap="round"/>
+<circle cx="689.5" cy="372" r="6" fill="#7A4E9E"/>
+<text x="786" y="377" font-size="14" fill="#231F1B"><tspan font-weight="700">0.890</tspan><tspan fill="#3D372F" font-size="12"> 0.878–0.902</tspan></text>
+<text x="24" y="407" font-size="14" font-weight="400" fill="#231F1B">Structural nearest neighbour</text>
+<line x1="502.2" x2="533.9" y1="402" y2="402" stroke="#8A8171" stroke-width="3" stroke-linecap="round"/>
+<circle cx="518.4" cy="402" r="6" fill="#8A8171"/>
+<text x="786" y="407" font-size="14" fill="#231F1B"><tspan font-weight="700">0.657</tspan><tspan fill="#3D372F" font-size="12"> 0.635–0.678</tspan></text>
+<text x="24" y="437" font-size="14" font-weight="400" fill="#231F1B">Length-3 paths</text>
+<line x1="622.5" x2="645.1" y1="432" y2="432" stroke="#8A8171" stroke-width="3" stroke-linecap="round"/>
+<circle cx="634.0" cy="432" r="6" fill="#8A8171"/>
+<text x="786" y="437" font-size="14" fill="#231F1B"><tspan font-weight="700">0.815</tspan><tspan fill="#3D372F" font-size="12"> 0.799–0.830</tspan></text>
+<text x="24" y="467" font-size="14" font-weight="400" fill="#231F1B">Preferential attachment</text>
+<line x1="392.3" x2="425.0" y1="462" y2="462" stroke="#8A8171" stroke-width="3" stroke-linecap="round"/>
+<circle cx="408.5" cy="462" r="6" fill="#8A8171"/>
+<text x="786" y="467" font-size="14" fill="#231F1B"><tspan font-weight="700">0.507</tspan><tspan fill="#3D372F" font-size="12"> 0.485–0.530</tspan></text>
+<text x="24" y="497" font-size="14" font-weight="400" fill="#231F1B">Chance</text>
+<line x1="403.3" x2="403.3" y1="492" y2="492" stroke="#8A8171" stroke-width="3" stroke-linecap="round"/>
+<circle cx="403.3" cy="492" r="6" fill="#8A8171"/>
+<text x="786" y="497" font-size="14" fill="#231F1B"><tspan font-weight="700">0.500</tspan><tspan fill="#3D372F" font-size="12"> 0.500–0.500</tspan></text>
+<text x="24" y="544" font-size="15" font-weight="700" fill="#231F1B">Random edge split</text>
+<line x1="403.3" x2="403.3" y1="554" y2="734" stroke="#B3A992" stroke-width="1"/>
+<line x1="476.7" x2="476.7" y1="554" y2="734" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
+<line x1="550.0" x2="550.0" y1="554" y2="734" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
+<line x1="623.3" x2="623.3" y1="554" y2="734" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
+<line x1="696.7" x2="696.7" y1="554" y2="734" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
+<line x1="770.0" x2="770.0" y1="554" y2="734" stroke="#B3A992" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="24" y="573" font-size="14" font-weight="600" fill="#231F1B">Attribute model (v3, the app)</text>
+<line x1="669.5" x2="681.6" y1="568" y2="568" stroke="#1F6FB5" stroke-width="3" stroke-linecap="round"/>
+<circle cx="675.2" cy="568" r="6" fill="#1F6FB5"/>
+<text x="786" y="573" font-size="14" fill="#231F1B"><tspan font-weight="700">0.871</tspan><tspan fill="#3D372F" font-size="12"> 0.863–0.879</tspan></text>
+<text x="24" y="603" font-size="14" font-weight="600" fill="#231F1B">Graph-only model (v2)</text>
+<line x1="574.8" x2="591.7" y1="598" y2="598" stroke="#7A4E9E" stroke-width="3" stroke-linecap="round"/>
+<circle cx="583.7" cy="598" r="6" fill="#7A4E9E"/>
+<text x="786" y="603" font-size="14" fill="#231F1B"><tspan font-weight="700">0.746</tspan><tspan fill="#3D372F" font-size="12"> 0.734–0.757</tspan></text>
+<text x="24" y="633" font-size="14" font-weight="400" fill="#231F1B">Structural nearest neighbour</text>
+<line x1="599.4" x2="616.0" y1="628" y2="628" stroke="#8A8171" stroke-width="3" stroke-linecap="round"/>
+<circle cx="607.6" cy="628" r="6" fill="#8A8171"/>
+<text x="786" y="633" font-size="14" fill="#231F1B"><tspan font-weight="700">0.779</tspan><tspan fill="#3D372F" font-size="12"> 0.767–0.790</tspan></text>
+<text x="24" y="663" font-size="14" font-weight="400" fill="#231F1B">Length-3 paths</text>
+<line x1="556.0" x2="567.9" y1="658" y2="658" stroke="#8A8171" stroke-width="3" stroke-linecap="round"/>
+<circle cx="561.8" cy="658" r="6" fill="#8A8171"/>
+<text x="786" y="663" font-size="14" fill="#231F1B"><tspan font-weight="700">0.716</tspan><tspan fill="#3D372F" font-size="12"> 0.708–0.724</tspan></text>
+<text x="24" y="693" font-size="14" font-weight="400" fill="#231F1B">Preferential attachment</text>
+<line x1="500.2" x2="519.1" y1="688" y2="688" stroke="#8A8171" stroke-width="3" stroke-linecap="round"/>
+<circle cx="509.6" cy="688" r="6" fill="#8A8171"/>
+<text x="786" y="693" font-size="14" fill="#231F1B"><tspan font-weight="700">0.645</tspan><tspan fill="#3D372F" font-size="12"> 0.632–0.658</tspan></text>
+<text x="24" y="723" font-size="14" font-weight="400" fill="#231F1B">Chance</text>
+<line x1="403.3" x2="403.3" y1="718" y2="718" stroke="#8A8171" stroke-width="3" stroke-linecap="round"/>
+<circle cx="403.3" cy="718" r="6" fill="#8A8171"/>
+<text x="786" y="723" font-size="14" fill="#231F1B"><tspan font-weight="700">0.500</tspan><tspan fill="#3D372F" font-size="12"> 0.500–0.500</tspan></text>
+<text x="403.3" y="752" font-size="12" text-anchor="middle" fill="#3D372F">0.5</text>
+<text x="476.7" y="752" font-size="12" text-anchor="middle" fill="#3D372F">0.6</text>
+<text x="550.0" y="752" font-size="12" text-anchor="middle" fill="#3D372F">0.7</text>
+<text x="623.3" y="752" font-size="12" text-anchor="middle" fill="#3D372F">0.8</text>
+<text x="696.7" y="752" font-size="12" text-anchor="middle" fill="#3D372F">0.9</text>
+<text x="770.0" y="752" font-size="12" text-anchor="middle" fill="#3D372F">1.0</text>
+<text x="550.0" y="774" font-size="13" text-anchor="middle" fill="#3D372F">ROC AUC (0.5 = chance, 1.0 = perfect ranking)</text>
 </svg>

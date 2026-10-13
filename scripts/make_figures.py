@@ -16,17 +16,17 @@ from xml.sax.saxutils import escape
 ROOT = Path(__file__).resolve().parent.parent
 CARD, INK, SECONDARY, RULE = "#F6F2E8", "#231F1B", "#3D372F", "#B3A992"
 BLUE, PURPLE, BASE = "#1F6FB5", "#7A4E9E", "#8A8171"
-SPLITS = {"random": "Random edge split", "drug_holdout": "Per-drug split (controls for target popularity)"}
+SPLITS = {"cold_drug": "Whole-drug holdout (unseen drugs)",
+          "drug_holdout": "Per-drug split (controls for target popularity)",
+          "random": "Random edge split"}
 X0, X1 = 0.4, 1.0  # ROC AUC axis range
 
 
-def rows(split, app):
-    other = "uniform" if app == "degree_matched" else "degree_matched"
-    names = {"degree_matched": "Random forest, degree-matched negatives",
-             "uniform": "Random forest, uniform negatives"}
-    out = [(names[app] + " (app)", split["models"][app], BLUE, True),
-           (names[other], split["models"][other], PURPLE, True)]
-    for key, name in (("l3_paths", "Length-3 paths"),
+def rows(split, app=None):
+    out = [("Attribute model (v3, the app)", split["attribute_model"], BLUE, True),
+           ("Graph-only model (v2)", split["graph_model"], PURPLE, True)]
+    for key, name in (("structural_nearest_neighbour", "Structural nearest neighbour"),
+                      ("l3_paths", "Length-3 paths"),
                       ("preferential_attachment", "Preferential attachment"),
                       ("chance", "Chance")):
         out.append((name, split["baselines"][key], BASE, False))
@@ -34,7 +34,7 @@ def rows(split, app):
 
 
 def evaluation_svg(results):
-    app = results["app_model"]["train_negatives"]
+    app = None
     W, label_w, plot_w, value_w = 920, 330, 440, 130
     row_h, panel_gap, top = 30, 46, 74
     panels = list(SPLITS)
@@ -93,53 +93,56 @@ START, END = "<!-- results:start -->", "<!-- results:end -->"
 
 
 def readme_block(results):
-    """Markdown results table, every number read from results.json."""
-    app = results["app_model"]["train_negatives"]
-    names = {"degree_matched": "Random forest, degree-matched negatives",
-             "uniform": "Random forest, uniform negatives"}
+    """Markdown results, every number read from the results files."""
+    v2 = json.loads((ROOT / "results" / "results.json").read_text())
+    abl = json.loads((ROOT / "results" / "results_attribute_ablation.json").read_text())
+    sim = {r["bin"]: r for r in json.loads(
+        (ROOT / "results" / "results_cold_similarity.json").read_text())["rows"]}
 
     def cell(b):
         lo, hi = b["roc_auc_ci95"]
         return f"{b['roc_auc']:.3f} ({lo:.3f}–{hi:.3f})"
 
-    def ap(b):
-        lo, hi = b["average_precision_ci95"]
-        return f"{b['average_precision']:.3f} ({lo:.3f}–{hi:.3f})"
-
-    r, d = results["splits"]["random"], results["splits"]["drug_holdout"]
-    rows = [(names[app] + " (app)", r["models"][app], d["models"][app])]
-    other = "uniform" if app == "degree_matched" else "degree_matched"
-    rows.append((names[other], r["models"][other], d["models"][other]))
-    for key, name in (("l3_paths", "Length-3 paths"), ("preferential_attachment",
-                                                       "Preferential attachment"), ("chance", "Chance")):
-        rows.append((name, r["baselines"][key], d["baselines"][key]))
-    ds, val = results["dataset"], results["app_model"]["per_drug_validation"]
-    sug = results.get("app_suggestions", {})
-    lines = [
-        START,
-        f"DrugBank {results['source']['version']} (exported {results['source']['exported_on']}): "
+    order = list(SPLITS)
+    lines = [START]
+    ds = v2["dataset"]
+    lines += [
+        f"DrugBank {v2['source']['version']} (exported {v2['source']['exported_on']}): "
         f"{ds['drugs_with_human_target']:,} drugs with a human target, {ds['human_targets']:,} human "
         f"targets, {ds['interactions']:,} interactions. Run {results.get('run_date', '')}, commit "
-        f"`{results['git_commit']}`, seed {results['seed']}.",
-        "",
-        "ROC AUC and average precision on held-out pairs (one sampled non-interaction per known "
-        "interaction), with 95% bootstrap intervals over test pairs:",
-        "",
-        "| Method | Random split ROC AUC | Random split AP | Per-drug split ROC AUC | Per-drug split AP |",
-        "|---|---|---|---|---|",
-        *[f"| {n} | {cell(a)} | {ap(a)} | {cell(b)} | {ap(b)} |" for n, a, b in rows],
-        "",
-        f"The app's model uses {app.replace('_', '-')} training negatives, chosen on the per-drug "
-        f"split's validation drugs before any test pair was scored (validation ROC AUC "
-        f"{val[app]['roc_auc']:.3f} vs {val[other]['roc_auc']:.3f}).",
+        f"`{results['git_commit']}`, seed {results['seed']}.", "",
+        "ROC AUC on held-out pairs (one sampled non-interaction per known interaction), with 95% "
+        "bootstrap intervals over test pairs:", "",
+        "| Method | " + " | ".join(SPLITS[k] for k in order) + " |",
+        "|---" * (len(order) + 1) + "|",
     ]
+    for name, _, _, _ in rows(results["splits"][order[0]]):
+        cells = [cell(b) for k in order for n, b, _, _ in rows(results["splits"][k]) if n == name]
+        lines.append(f"| {name} | " + " | ".join(cells) + " |")
+    cold = results["splits"]["cold_drug"]["attribute_model"]
+    no_cat = abl["variants"]["without categories and ATC"]["val_roc_auc"]
+    lines += ["",
+              f"On unseen drugs: {cold['roc_auc']:.2f} on the test set, "
+              f"{cold['validation']['roc_auc']:.2f} on the smaller validation set, and about "
+              f"{no_cat:.2f} (validation) without curated categories and ATC codes, the fairer "
+              f"expectation for a genuinely new compound. {sim['identical (>= 0.999)']['test_drugs']} "
+              f"of {sim['all test drugs']['test_drugs']:,} test drugs have a structurally identical "
+              f"twin among training drugs; without them the score is "
+              f"{sim['all except identical']['attribute_model']['roc_auc']:.2f}."]
+    sug = results.get("app_suggestions")
     if sug:
-        lines += ["", f"Default suggestion threshold {sug['default_threshold']:.2f}: the "
-                      f"{sug['default_threshold_rule']}. Median candidates at or above each score: "
-                      + ", ".join(f"{k}: {v:g}" for k, v in sug["median_candidates_at_or_above"].items())
-                      + "."]
-    lines += ["", "Produced by `" + "` then `".join(results["commands"] + [sug.get("command", "")]).rstrip(
-        "` then `") + "`; table and figure by `python scripts/make_figures.py`.", END]
+        parts = []
+        for k, who in (("seen", "drugs with known targets"), ("cold", "drugs with no known targets")):
+            t = sug[k]["default_threshold"]
+            median = sug[k]["median_candidates_at_or_above"][f"{t:.2f}"]
+            parts.append(f"{who} {t:.2f} (median {median:g} candidates)")
+        lines += ["", "Default suggestion thresholds: " + "; ".join(parts)
+                  + f". Rule: {sug['default_threshold_rule']}."]
+    lines += ["", "Produced by `python src/datasources/drugbank_loader.py`, "
+                  "`python src/datasources/drugbank_attributes.py`, `python train_attribute_model.py`, "
+                  "`python scripts/analyze_cold_holdout.py`, `python scripts/ablate_attributes_validation.py` "
+                  "and `python predict_links.py`; the v2 graph-only model by `python train_ml_models.py`; "
+                  "table and figure by `python scripts/make_figures.py`.", END]
     return "\n".join(lines)
 
 
@@ -155,7 +158,7 @@ def update_readme(results):
 
 
 def main():
-    results = json.loads((ROOT / "results" / "results.json").read_text())
+    results = json.loads((ROOT / "results" / "results_attributes.json").read_text())
     out = ROOT / "figures"
     out.mkdir(exist_ok=True)
     (out / "evaluation.svg").write_text(evaluation_svg(results))
