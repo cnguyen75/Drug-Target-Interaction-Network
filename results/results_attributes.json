@@ -3,11 +3,11 @@
     "python src/datasources/drugbank_attributes.py",
     "python train_attribute_model.py"
   ],
-  "git_commit": "35c1b97",
+  "git_commit": "7b158a0",
   "run_date": "2026-10-12",
   "python": "3.11.14",
   "seed": 42,
-  "runtime_seconds": 322.8,
+  "runtime_seconds": 714.1,
   "attribute_features": [
     "fp_max_binders",
     "fp_top3_binders",
@@ -370,5 +370,60 @@
       },
       "test_drugs_with_structure": 0.8972
     }
+  },
+  "app_model": {
+    "version": "v3 attribute model",
+    "routing": "drugs with known targets and target queries use the 'seen' copy; drugs with no known targets use the 'cold' copy",
+    "copies": {
+      "seen": {
+        "split": "All edges, per-drug protocol: half the edges of 40% of drugs with 2+ targets are training positives (a quarter of those drugs held back for validation and calibration); every drug and every target keeps at least one edge; no test set",
+        "validation": {
+          "roc_auc": 0.9294,
+          "average_precision": 0.9308,
+          "positives": 627
+        },
+        "calibration": "isotonic regression on the validation pairs"
+      },
+      "cold": {
+        "split": "All edges, whole-drug protocol: every edge of 25% of drugs hidden for training, skipping drugs whose removal would leave a target with no binder (a quarter of those drugs held back for validation and calibration); no test set",
+        "validation": {
+          "roc_auc": 0.8859,
+          "average_precision": 0.898,
+          "positives": 957
+        },
+        "calibration": "isotonic regression on the validation pairs"
+      }
+    }
+  },
+  "app_suggestions": {
+    "seen": {
+      "drugs_scored": 1646,
+      "median_candidates_at_or_above": {
+        "0.50": 279.0,
+        "0.60": 52.0,
+        "0.70": 49.0,
+        "0.80": 34.0,
+        "0.90": 16.0,
+        "0.95": 4.0
+      },
+      "default_threshold": 0.95,
+      "rule_met": true
+    },
+    "cold": {
+      "drugs_scored": 619,
+      "median_candidates_at_or_above": {
+        "0.50": 186.0,
+        "0.60": 71.0,
+        "0.70": 71.0,
+        "0.80": 31.0,
+        "0.90": 8.0,
+        "0.95": 1.0
+      },
+      "default_threshold": 0.9,
+      "rule_met": true
+    },
+    "command": "python predict_links.py",
+    "default_threshold_rule": "for each copy, the lowest of 0.50, 0.60, 0.70, 0.80, 0.90, 0.95 that leaves the median featured drug with at most 10 candidates",
+    "ranking": "calibrated score, then fewer known drugs for the target (rarer first)"
   }
 }
