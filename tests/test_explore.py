@@ -77,3 +77,18 @@ def test_attribute_evidence_lines():
             # target-centred wording names the target rather than "it"
             assert "binds it" not in evidence(G, t, d, attr=p)
     assert "Structurally" in seen
+
+
+def test_no_evidence_wording():
+    from pipeline.explore import NO_EVIDENCE
+    from test_attributes import _tables
+    from pipeline.attributes import AttributeLinkPredictor
+
+    tables, da, ta = _tables()
+    p = AttributeLinkPredictor(da, ta, seed=3)
+    p.load_data(*tables)
+    G = p.G
+    lonely = "LONELY"
+    G.add_node(lonely, node_type="drug", name="Lonely")
+    t = sorted(n for n in G if G.nodes[n]["node_type"] == "target")[0]
+    assert evidence(G, lonely, t, attr=p) == NO_EVIDENCE

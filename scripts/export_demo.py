@@ -58,7 +58,7 @@ REASON_KINDS = (("Structurally similar", "structural_similarity"),
 def reason(G, drug, target, model, label, with_text):
     """The app's evidence line for this suggestion, with its kind (text only if allowed)."""
     text = evidence(G, drug, target, label=label, attr=model)
-    kind = next((k for marker, k in REASON_KINDS if marker in text), "none")
+    kind = next((k for marker, k in REASON_KINDS if marker in text), "none")  # NO_EVIDENCE -> "none"
     return {"kind": kind, "text": text} if with_text else {"kind": kind}
 
 

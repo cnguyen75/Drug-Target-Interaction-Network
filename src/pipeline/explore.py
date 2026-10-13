@@ -48,6 +48,7 @@ def _join(names):
 
 
 STRUCTURE_CUTOFF = 0.5  # Tanimoto; fixed before looking at any suggestion
+NO_EVIDENCE = "No supporting evidence above threshold; ranked on model score alone."
 
 
 def _shared_partner_line(G, node, partner, name, max_names, label):
@@ -152,7 +153,7 @@ def evidence(G, node, partner, emb=None, max_names=2, label=None, attr=None):
             kind = "drugs" if is_drug else "targets"
             return f"Among its 25 nearest {kind} in the embedding, {_join(_names(G, linked, label))} link to it."
     if attr is not None:
-        return "No similar binder, shared-target path or shared class in the data; a weak suggestion."
+        return NO_EVIDENCE
     return "No shared-target path in the data; the score comes from degree and embedding position."
 
 

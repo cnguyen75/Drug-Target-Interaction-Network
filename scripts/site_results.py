@@ -18,6 +18,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(ROOT / "src"))
 from config import DTI_FP  # noqa: E402
+from pipeline.explore import NO_EVIDENCE  # noqa: E402
 from pipeline.link_prediction import DTILinkPredictor  # noqa: E402
 
 COMMAND = "python scripts/site_results.py OUT.json"
@@ -42,7 +43,7 @@ def spread(model, drugs, threshold, preds):
         "p90_candidates": float(np.percentile(at, 90)),
         "most_common_top_suggestion_drug_count": int(top1["target_id"].value_counts().iloc[0]),
         "share_of_top_suggestions_with_no_evidence": round(float(
-            top1["evidence"].str.startswith("No similar").mean()), 3),
+            (top1["evidence"] == NO_EVIDENCE).mean()), 3),
         "share_of_top_suggestions_on_targets_isolated_in_training": round(float(
             top1["target_id"].isin(isolated).mean()), 3),
         "share_of_drugs_with_tied_scores_in_top_5": round(float(ties.mean()), 3),
