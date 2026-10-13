@@ -107,7 +107,8 @@ def _attribute_lines(G, attr, drug, target, node_is_drug, label):
         n = sum(attr.chem_class.get(b, "") == cls for b in binders)
         if n:
             whose = "its" if node_is_drug else "the drug's"
-            lines["class"] = (f"{n} of {len(binders)} known binders share {whose} chemical class "
+            verb = "shares" if n == 1 else "share"
+            lines["class"] = (f"{n} of {len(binders)} known binders {verb} {whose} chemical class "
                               f"({cls}).")
     return lines
 
