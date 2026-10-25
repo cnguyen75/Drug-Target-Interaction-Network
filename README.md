@@ -4,7 +4,7 @@
 
 <sub>Interaction data from DrugBank 5.1, used under CC BY-NC 4.0 for non-commercial purposes.</sub>
 
-A Dash app and pipeline that turn a DrugBank export into a drug–target network, learn which unrecorded drug–target pairs look like real interactions, and show the evidence for each suggestion. Drugs and human protein targets form a bipartite graph; Node2Vec embeds it; a random forest scores pairs from graph features and from drug attributes (chemical structure, protein family, chemical class, categories), so it can also suggest targets for a drug with no known interactions. The app has four views: **explore** (search a drug or target, see its neighbourhood and ranked suggestions), **predictions**, **evaluation** and **methods**.
+A Dash app and pipeline that turn a DrugBank export into a drug–target network, learn which unrecorded drug–target pairs look like real interactions, and show the evidence for each suggestion. Drugs and human protein targets form a bipartite graph; Node2Vec embeds it; a random forest scores pairs from graph features and from drug attributes (chemical structure, protein family, chemical class, categories), so it can also suggest targets for a drug with no known interactions. The app has four views: **explore** (search a drug or target, see its neighbourhood and ranked suggestions), **predictions**, **evaluation**, and **methods**.
 
 ## Run it
 
@@ -33,7 +33,7 @@ Tests use synthetic data only: `make test`. Python 3.11; versions are pinned in 
 
 ## Results
 
-![ROC AUC on held-out pairs for three splits, two models and four baselines](figures/evaluation.svg)
+![ROC AUC on held-out pairs for three splits, two models, and four baselines](figures/evaluation.svg)
 
 <!-- results:start -->
 DrugBank 5.1 (exported 2025-01-02): 7,393 drugs with a human target, 2,981 human targets, 18,038 interactions. Run 2026-10-12, commit `7b158a0`, seed 42.
@@ -56,6 +56,8 @@ Default suggestion thresholds: drugs with known targets 0.95 (median 4 candidate
 Produced by `python src/datasources/drugbank_loader.py`, `python src/datasources/drugbank_attributes.py`, `python train_attribute_model.py`, `python scripts/analyze_cold_holdout.py`, `python scripts/ablate_attributes_validation.py` and `python predict_links.py`; the v2 graph-only model by `python train_ml_models.py`; table and figure by `python scripts/make_figures.py`.
 <!-- results:end -->
 
+## How it works
+
 **Three splits.** The *whole-drug holdout* removes every interaction of 20% of drugs and asks the model to rank targets for them, which is the realistic use: suggesting targets for a drug the network has never seen. The *per-drug split (controls for target popularity)* hides half the interactions of 20% of drugs with two or more targets. Both pair each hidden interaction with a non-interaction for the same drug and a target of similar degree. The *random edge split* hides 20% of interactions at random against uniform random non-interactions. A quarter of each split's training drugs (or edges) is held back for validation; choices are made there and each test set is scored once.
 
 **Two models.** The *attribute model (v3)* adds 8 features to the 12 graph features; each compares the drug with drugs already known to bind the target: structural similarity (Morgan fingerprints), similarity to binders of targets in the same Pfam family, overlap of DrugBank categories and ATC codes, and shared chemical class. The *graph-only model (v2)* needs a drug's existing interactions, so on unseen drugs it is near chance. The app uses two calibrated copies of v3: one trained like the per-drug split for drugs with known targets, one trained like the whole-drug holdout for drugs with none.
@@ -66,12 +68,12 @@ An earlier version of this README reported ROC AUC 0.93 on a "temporal" split. T
 
 ## Limitations
 
-- **Unseen by the graph, not by DrugBank.** A held-out drug keeps its DrugBank structure, class, categories and ATC codes. Categories and ATC codes are partly assigned because a drug's targets are known; the results section gives the unseen-drug score without them, the fairer expectation for a new compound.
+- **Unseen by the graph, not by DrugBank.** A held-out drug keeps its DrugBank structure, class, categories, and ATC codes. Categories and ATC codes are partly assigned because a drug's targets are known; the results section gives the unseen-drug score without them, the fairer expectation for a new compound.
 - **Not temporal.** DrugBank has no per-interaction dates, so the evaluation cannot say how well the model anticipates future discoveries.
 - **Negatives are unmeasured.** Sampled non-interactions include real interactions nobody has tested; balanced 1:1 test sets make precision look far better than it would in screening.
 - **Scores are rankings.** Suggestion scores are calibrated with isotonic regression on validation pairs, but on balanced data; they are not the chance an interaction is real. Isotonic calibration is a step function, so many top scores tie; the app marks ties and orders them by target rarity.
 - **Intervals** cover resampling of test pairs only, not other split seeds or DrugBank releases.
-- **DrugBank entries** include ions, salts, supplements and cell therapies. The app features approved small molecules only and hides other entry types from the graph by default.
+- **DrugBank entries** include ions, salts, supplements, and cell therapies. The app features approved small molecules only and hides other entry types from the graph by default.
 
 ## Licence
 
