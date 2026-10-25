@@ -38,25 +38,43 @@ from sklearn.metrics import auc as area_under_curve
 from sklearn.metrics import average_precision_score, precision_recall_curve, roc_auc_score
 from sklearn.preprocessing import StandardScaler
 
+
 FEATURE_NAMES = [
-    "drug_degree", "target_degree", "jaccard", "preferential_attachment",
-    "resource_allocation", "adamic_adar", "shortest_path", "common_neighbors",
-    "total_neighbors", "embedding_dot", "drug_embedding_mean", "target_embedding_mean",
+    "drug_degree",
+    "target_degree",
+    "jaccard",
+    "preferential_attachment",
+    "resource_allocation",
+    "adamic_adar",
+    "shortest_path",
+    "common_neighbors",
+    "total_neighbors",
+    "embedding_dot",
+    "drug_embedding_mean",
+    "target_embedding_mean",
 ]
 
 SPLIT_DESCRIPTIONS = {
     "random": "Random edge split 60/20/20 (message/train/test), uniform random negatives",
-    "drug_holdout": ("Per-drug holdout: 20% of drugs with 2+ targets are test drugs with half "
-                     "their edges hidden; negatives use the same drug and a degree-matched target"),
-    "cold_drug": ("Whole-drug holdout: 20% of drugs with a known target have every edge removed "
-                  "and are tested; another 20% are made cold the same way for training; negatives "
-                  "use the same drug and a degree-matched target"),
-    "final_cold": ("All edges, whole-drug protocol: every edge of 25% of drugs hidden for "
-                   "training, skipping drugs whose removal would leave a target with no binder "
-                   "(a quarter of those drugs held back for validation and calibration); no test set"),
-    "final": ("All edges, per-drug protocol: half the edges of 40% of drugs with 2+ targets "
-              "are training positives (a quarter of those drugs held back for validation and "
-              "calibration); every drug and every target keeps at least one edge; no test set"),
+    "drug_holdout": (
+        "Per-drug holdout: 20% of drugs with 2+ targets are test drugs with half "
+        "their edges hidden; negatives use the same drug and a degree-matched target"
+    ),
+    "cold_drug": (
+        "Whole-drug holdout: 20% of drugs with a known target have every edge removed "
+        "and are tested; another 20% are made cold the same way for training; negatives "
+        "use the same drug and a degree-matched target"
+    ),
+    "final_cold": (
+        "All edges, whole-drug protocol: every edge of 25% of drugs hidden for "
+        "training, skipping drugs whose removal would leave a target with no binder "
+        "(a quarter of those drugs held back for validation and calibration); no test set"
+    ),
+    "final": (
+        "All edges, per-drug protocol: half the edges of 40% of drugs with 2+ targets "
+        "are training positives (a quarter of those drugs held back for validation and "
+        "calibration); every drug and every target keeps at least one edge; no test set"
+    ),
 }
 
 
@@ -142,7 +160,7 @@ class DTILinkPredictor:
             edges = [edges[i] for i in self.rng.permutation(len(edges))]
             n_test = int(len(edges) * 0.2)
             n_train = int(len(edges) * 0.2)
-            test, train = edges[:n_test], edges[n_test:n_test + n_train]
+            test, train = edges[:n_test], edges[n_test : n_test + n_train]
         elif kind == "final":
             # Same protocol as the per-drug split, without a test set: hide half
             # the edges of 40% of drugs with 2+ targets, never a drug's last
@@ -170,8 +188,10 @@ class DTILinkPredictor:
         self.train_graph.add_nodes_from(self.G.nodes(data=True))
         self.train_graph.add_edges_from(self.message_edges)
 
-        print(f"{kind} split (seed {self.seed}): {len(self.message_edges)} message edges, "
-              f"{len(self.fit_edges)} fit, {len(self.val_edges)} validation, {len(test)} test edges")
+        print(
+            f"{kind} split (seed {self.seed}): {len(self.message_edges)} message edges, "
+            f"{len(self.fit_edges)} fit, {len(self.val_edges)} validation, {len(test)} test edges"
+        )
         return train, test
 
     def _carve_validation(self, kind, train, frac=0.25):
@@ -185,12 +205,12 @@ class DTILinkPredictor:
         """
         if kind in ("drug_holdout", "final", "cold_drug", "final_cold"):
             n_val = int(len(self.train_drugs) * frac)
-            self.val_drugs = set(self.train_drugs[len(self.train_drugs) - n_val:])
+            self.val_drugs = set(self.train_drugs[len(self.train_drugs) - n_val :])
             val = [e for e in train if e[0] in self.val_drugs]
             fit = [e for e in train if e[0] not in self.val_drugs]
             return fit, val
         n_val = int(len(train) * frac)
-        return train[:len(train) - n_val], train[len(train) - n_val:]
+        return train[: len(train) - n_val], train[len(train) - n_val :]
 
     def _cold_drug(self, edges, drug_frac=0.2, test=True, keep_targets=False):
         """Whole-drug holdout: every edge of the test drugs (and of the training
@@ -222,7 +242,7 @@ class DTILinkPredictor:
                     chosen.append(d)
             order = chosen
         if test:
-            self.test_drugs, self.train_drugs = order[:n], order[n:2 * n]
+            self.test_drugs, self.train_drugs = order[:n], order[n : 2 * n]
         else:
             self.test_drugs, self.train_drugs = [], order[:n]
         train = [e for d in self.train_drugs for e in by_drug[d]]
@@ -237,7 +257,7 @@ class DTILinkPredictor:
         order = [eligible[i] for i in self.rng.permutation(len(eligible))]
         n = int(len(order) * drug_frac)
         if test:
-            self.test_drugs, self.train_drugs = order[:n], order[n:2 * n]
+            self.test_drugs, self.train_drugs = order[:n], order[n : 2 * n]
         else:
             self.test_drugs, self.train_drugs = [], order[:n]
 
@@ -271,9 +291,11 @@ class DTILinkPredictor:
         whose job is ranking candidate targets for one drug.
         """
         if scheme is None:
-            scheme = ("degree_matched"
-                      if self.split in ("drug_holdout", "final", "cold_drug", "final_cold")
-                      else "uniform")
+            scheme = (
+                "degree_matched"
+                if self.split in ("drug_holdout", "final", "cold_drug", "final_cold")
+                else "uniform"
+            )
         if scheme == "degree_matched":
             return self._degree_matched_negatives(positives, exclude)
         return self._uniform_negatives(len(positives), exclude)
@@ -283,8 +305,9 @@ class DTILinkPredictor:
         targets = sorted(t for t in self.target_nodes if self.G.degree(t) > 0)
         pairs = set()
         while len(pairs) < n:
-            for i, j in zip(self.rng.integers(len(drugs), size=n),
-                            self.rng.integers(len(targets), size=n)):
+            for i, j in zip(
+                self.rng.integers(len(drugs), size=n), self.rng.integers(len(targets), size=n)
+            ):
                 pair = (drugs[i], targets[j])
                 if pair in pairs or pair in exclude or self.G.has_edge(*pair):
                     continue
@@ -320,8 +343,12 @@ class DTILinkPredictor:
                     break
             else:
                 # Bin exhausted for this drug: widen to neighbouring bins.
-                pool = [x for k in (b - 1, b, b + 1) for x in bins.get(k, [])
-                        if (d, x) not in used and not self.G.has_edge(d, x)]
+                pool = [
+                    x
+                    for k in (b - 1, b, b + 1)
+                    for x in bins.get(k, [])
+                    if (d, x) not in used and not self.G.has_edge(d, x)
+                ]
                 cand = pool[self.rng.integers(len(pool))]
             used.add((d, cand))
             negatives.append((d, cand))
@@ -365,12 +392,23 @@ class DTILinkPredictor:
                 target_embedding = self.embeddings_df.loc[target_id].values
             embedding_dot = float(np.dot(drug_embedding, target_embedding))
 
-        return np.array([
-            drug_degree, target_degree, jaccard, preferential_attachment,
-            resource_allocation, adamic_adar, shortest_path, common_neighbors,
-            len(union), embedding_dot,
-            drug_embedding.mean(), target_embedding.mean(),
-        ], dtype=float)
+        return np.array(
+            [
+                drug_degree,
+                target_degree,
+                jaccard,
+                preferential_attachment,
+                resource_allocation,
+                adamic_adar,
+                shortest_path,
+                common_neighbors,
+                len(union),
+                embedding_dot,
+                drug_embedding.mean(),
+                target_embedding.mean(),
+            ],
+            dtype=float,
+        )
 
     def _features(self, pairs):
         return np.vstack([self.extract_features_safe(d, t) for d, t in pairs])
@@ -395,14 +433,16 @@ class DTILinkPredictor:
         self.model = RandomForestClassifier(n_estimators=100, random_state=self.seed, n_jobs=-1)
         self.model.fit(self.scaler.fit_transform(X), y)
         self.calibrator = None
-        self.evaluation_results = {"model_performance": {
-            "split": self.split,
-            "split_description": SPLIT_DESCRIPTIONS[self.split],
-            "train_negatives": self.train_negatives,
-            "message_edges": len(self.message_edges),
-            "fit_positives": len(self.fit_edges),
-            "fit_negatives": len(self.fit_neg),
-        }}
+        self.evaluation_results = {
+            "model_performance": {
+                "split": self.split,
+                "split_description": SPLIT_DESCRIPTIONS[self.split],
+                "train_negatives": self.train_negatives,
+                "message_edges": len(self.message_edges),
+                "fit_positives": len(self.fit_edges),
+                "fit_negatives": len(self.fit_neg),
+            }
+        }
 
     def _raw_scores(self, pairs):
         return self.model.predict_proba(self.scaler.transform(self._features(pairs)))[:, 1]
@@ -414,10 +454,14 @@ class DTILinkPredictor:
         self.val_labels = np.array([1] * len(self.val_edges) + [0] * len(self.val_neg))
         self.val_scores = self._raw_scores(pairs)
         roc, ap = _ranking_metrics(self.val_labels, self.val_scores)
-        self.evaluation_results["model_performance"].update({
-            "val_positives": len(self.val_edges), "val_negatives": len(self.val_neg),
-            "val_auc": roc, "val_ap_score": ap,
-        })
+        self.evaluation_results["model_performance"].update(
+            {
+                "val_positives": len(self.val_edges),
+                "val_negatives": len(self.val_neg),
+                "val_auc": roc,
+                "val_ap_score": ap,
+            }
+        )
         print(f"[{self.split}/{self.train_negatives}] validation ROC AUC {roc:.4f}, AP {ap:.4f}")
         return roc, ap
 
@@ -455,29 +499,37 @@ class DTILinkPredictor:
         precision, recall, _ = precision_recall_curve(y_test, proba)
         frac_pos, mean_pred = calibration_curve(y_test, proba, n_bins=10)
         perf = self.evaluation_results["model_performance"]
-        perf.update({
-            "auc": roc,
-            "ap_score": ap,
-            "pr_auc": area_under_curve(recall, precision),
-            "brier_score": float(np.mean((proba - y_test) ** 2)),
-            "test_positives": len(self.test_edges),
-            "test_negatives": len(test_neg),
-            **bootstrap_ci(y_test, proba, seed=self.seed),
-        })
+        perf.update(
+            {
+                "auc": roc,
+                "ap_score": ap,
+                "pr_auc": area_under_curve(recall, precision),
+                "brier_score": float(np.mean((proba - y_test) ** 2)),
+                "test_positives": len(self.test_edges),
+                "test_negatives": len(test_neg),
+                **bootstrap_ci(y_test, proba, seed=self.seed),
+            }
+        )
         if self.split in ("drug_holdout", "cold_drug"):
             perf["test_drugs"] = len(self.test_drugs)
 
-        self.evaluation_results.update({
-            "baselines": self.compare_baselines(pairs, y_test),
-            "calibration": {"fraction_of_positives": frac_pos,
-                            "mean_predicted_value": mean_pred},
-            "feature_importances": dict(zip(FEATURE_NAMES, self.model.feature_importances_)),
-            "test_pairs": pairs,
-            "test_labels": y_test,
-            "test_scores": proba,
-        })
-        print(f"[{self.split}/{self.train_negatives}] test ROC AUC {roc:.4f} {perf['roc_auc_ci95']}, "
-              f"AP {ap:.4f} {perf['ap_ci95']}")
+        self.evaluation_results.update(
+            {
+                "baselines": self.compare_baselines(pairs, y_test),
+                "calibration": {
+                    "fraction_of_positives": frac_pos,
+                    "mean_predicted_value": mean_pred,
+                },
+                "feature_importances": dict(zip(FEATURE_NAMES, self.model.feature_importances_)),
+                "test_pairs": pairs,
+                "test_labels": y_test,
+                "test_scores": proba,
+            }
+        )
+        print(
+            f"[{self.split}/{self.train_negatives}] test ROC AUC {roc:.4f} {perf['roc_auc_ci95']}, "
+            f"AP {ap:.4f} {perf['ap_ci95']}"
+        )
         return perf
 
     def _l3_paths(self, drug_id, target_id):
@@ -504,7 +556,11 @@ class DTILinkPredictor:
         results = {}
         for name, s in scores.items():
             roc, ap = _ranking_metrics(y_test, s)
-            results[name] = {"roc_auc": roc, "ap_score": ap, **bootstrap_ci(y_test, s, seed=self.seed)}
+            results[name] = {
+                "roc_auc": roc,
+                "ap_score": ap,
+                **bootstrap_ci(y_test, s, seed=self.seed),
+            }
         return results
 
     def predict_interaction(self, drug_id, target_id):
@@ -532,8 +588,9 @@ class DTILinkPredictor:
         is_drug = node in self.drug_nodes
         pool = self.target_nodes if is_drug else self.drug_nodes
         if candidates is None:
-            candidates = [n for n in sorted(pool)
-                          if self.G.degree(n) > 0 and not self.G.has_edge(node, n)]
+            candidates = [
+                n for n in sorted(pool) if self.G.degree(n) > 0 and not self.G.has_edge(node, n)
+            ]
         if not candidates:
             return {}
         X = self._candidate_matrix(node, candidates)
@@ -566,8 +623,22 @@ class DTILinkPredictor:
         drug_mean = np.full(n, node_vec.mean()) if is_drug else cand_vecs.mean(axis=1)
         target_mean = cand_vecs.mean(axis=1) if is_drug else np.full(n, node_vec.mean())
         zeros = np.zeros(n)
-        return np.column_stack([drug_deg, target_deg, zeros, drug_deg * target_deg, zeros, zeros,
-                                sp, zeros, drug_deg + target_deg, dot, drug_mean, target_mean])
+        return np.column_stack(
+            [
+                drug_deg,
+                target_deg,
+                zeros,
+                drug_deg * target_deg,
+                zeros,
+                zeros,
+                sp,
+                zeros,
+                drug_deg + target_deg,
+                dot,
+                drug_mean,
+                target_mean,
+            ]
+        )
 
     def save_model(self, filepath):
         """Save the trained model."""

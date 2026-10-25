@@ -19,15 +19,17 @@ none does (recorded as rule_met: false).
 """
 
 import json
-import sys
 from pathlib import Path
+import sys
 
 import numpy as np
 import pandas as pd
 
+
 sys.path.append(str(Path(__file__).parent / "src"))
 from pipeline.explore import evidence, featured_mask, rank_key
 from pipeline.link_prediction import DTILinkPredictor
+
 
 TOP_K = 10
 THRESHOLDS = (0.5, 0.6, 0.7, 0.8, 0.9, 0.95)
@@ -50,8 +52,10 @@ def main():
         return genes.get(n) or G.nodes[n]["name"]
 
     featured = seen.drugs_df[featured_mask(seen.drugs_df)]["drug_id"]
-    groups = {"seen": sorted(d for d in featured if G.degree(d) > 0),
-              "cold": sorted(d for d in featured if G.degree(d) == 0)}
+    groups = {
+        "seen": sorted(d for d in featured if G.degree(d) > 0),
+        "cold": sorted(d for d in featured if G.degree(d) == 0),
+    }
 
     rows, block = [], {}
     for name, drugs in groups.items():
@@ -64,9 +68,17 @@ def main():
                 counts[t].append(int((values >= t).sum()))
             top = sorted(scores.items(), key=lambda x: rank_key(G, x))[:TOP_K]
             for rank, (target, score) in enumerate(top, 1):
-                rows.append({"drug_id": drug, "target_id": target, "rank": rank, "copy": name,
-                             "score": float(score), "target_known_drugs": G.degree(target),
-                             "evidence": evidence(G, drug, target, label=label, attr=model)})
+                rows.append(
+                    {
+                        "drug_id": drug,
+                        "target_id": target,
+                        "rank": rank,
+                        "copy": name,
+                        "score": float(score),
+                        "target_known_drugs": G.degree(target),
+                        "evidence": evidence(G, drug, target, label=label, attr=model),
+                    }
+                )
             if i % 250 == 0:
                 print(f"[{name}] {i}/{len(drugs)}")
         medians = {t: float(np.median(c)) for t, c in counts.items()}
@@ -80,17 +92,23 @@ def main():
 
     out = pd.DataFrame(rows)
     out.to_parquet("models/predictions.parquet", index=False)
-    block.update({
-        "command": "python predict_links.py",
-        "default_threshold_rule": (f"for each copy, the lowest of "
-                                   f"{', '.join(f'{t:.2f}' for t in THRESHOLDS)} that leaves the "
-                                   f"median featured drug with at most {SHORTLIST} candidates"),
-        "ranking": "calibrated score, then fewer known drugs for the target (rarer first)",
-    })
+    block.update(
+        {
+            "command": "python predict_links.py",
+            "default_threshold_rule": (
+                f"for each copy, the lowest of "
+                f"{', '.join(f'{t:.2f}' for t in THRESHOLDS)} that leaves the "
+                f"median featured drug with at most {SHORTLIST} candidates"
+            ),
+            "ranking": "calibrated score, then fewer known drugs for the target (rarer first)",
+        }
+    )
     results = json.loads(RESULTS_FP.read_text())
     results["app_suggestions"] = block
     RESULTS_FP.write_text(json.dumps(results, indent=2) + "\n")
-    print(f"{out['drug_id'].nunique()} drugs, {len(out)} predicted links -> models/predictions.parquet")
+    print(
+        f"{out['drug_id'].nunique()} drugs, {len(out)} predicted links -> models/predictions.parquet"
+    )
     print(json.dumps(block, indent=2))
 
 

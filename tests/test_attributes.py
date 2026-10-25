@@ -6,25 +6,38 @@ import sys
 import numpy as np
 import pandas as pd
 
+
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 sys.path.append(os.path.dirname(__file__))
+from synthetic import synthetic_tables
+
 from pipeline.attributes import ATTRIBUTE_FEATURES, AttributeLinkPredictor
 from pipeline.link_prediction import DTILinkPredictor
-from synthetic import synthetic_tables
+
 
 SMILES = ["CCO", "CCN", "c1ccccc1O", "c1ccccc1N", "CC(=O)O", "CCCC", None]
 
 
 def _tables():
     drugs, targets, dti = synthetic_tables()
-    drugs = drugs.assign(smiles=[SMILES[i % len(SMILES)] for i in range(len(drugs))],
-                         atc_codes=["A01AB01" if i % 3 == 0 else None for i in range(len(drugs))])
-    drug_attrs = pd.DataFrame({"drug_id": drugs["drug_id"],
-                               "categories": ["Cat A|Cat B" if i % 2 else "Cat A" for i in range(len(drugs))],
-                               "class": ["Class " + str(i % 4) for i in range(len(drugs))],
-                               "superclass": ["Super " + str(i % 2) for i in range(len(drugs))]})
-    target_attrs = pd.DataFrame({"target_id": targets["target_id"],
-                                 "pfams": ["PF%05d" % (i % 6) for i in range(len(targets))]})
+    drugs = drugs.assign(
+        smiles=[SMILES[i % len(SMILES)] for i in range(len(drugs))],
+        atc_codes=["A01AB01" if i % 3 == 0 else None for i in range(len(drugs))],
+    )
+    drug_attrs = pd.DataFrame(
+        {
+            "drug_id": drugs["drug_id"],
+            "categories": ["Cat A|Cat B" if i % 2 else "Cat A" for i in range(len(drugs))],
+            "class": ["Class " + str(i % 4) for i in range(len(drugs))],
+            "superclass": ["Super " + str(i % 2) for i in range(len(drugs))],
+        }
+    )
+    target_attrs = pd.DataFrame(
+        {
+            "target_id": targets["target_id"],
+            "pfams": ["PF%05d" % (i % 6) for i in range(len(targets))],
+        }
+    )
     return (drugs, targets, dti), drug_attrs, target_attrs
 
 
@@ -61,13 +74,21 @@ def test_attribute_features_use_message_graph_only():
     p.split_edges("cold_drug")
     d, t = p.test_edges[0]
     f = dict(zip(ATTRIBUTE_FEATURES, p.attribute_features(d, t)))
-    assert d not in p._binders(t)          # its own (hidden) edge is not a binder
+    assert d not in p._binders(t)  # its own (hidden) edge is not a binder
     assert -1.0 <= f["fp_max_binders"] <= 1.0
     # identical structure to a binder gives similarity 1
     binders = p._binders(t)
-    twin = next((b for b in binders if p.fps.get(b) is not None and d in p.fps
-                 and tables[0].set_index("drug_id").at[b, "smiles"]
-                 == tables[0].set_index("drug_id").at[d, "smiles"]), None)
+    twin = next(
+        (
+            b
+            for b in binders
+            if p.fps.get(b) is not None
+            and d in p.fps
+            and tables[0].set_index("drug_id").at[b, "smiles"]
+            == tables[0].set_index("drug_id").at[d, "smiles"]
+        ),
+        None,
+    )
     if twin is not None:
         assert np.isclose(f["fp_max_binders"], 1.0)
 
@@ -87,7 +108,9 @@ def test_vectorised_candidate_features_match_per_pair():
     assert np.allclose(fast, slow)
     target = sorted(p.target_nodes)[4]
     drugs = [d for d in sorted(p.drug_nodes) if not p.G.has_edge(d, target)][:20]
-    assert np.allclose(p._candidate_matrix(target, drugs), p._features([(d, target) for d in drugs]))
+    assert np.allclose(
+        p._candidate_matrix(target, drugs), p._features([(d, target) for d in drugs])
+    )
 
 
 def test_cold_copy_scores_a_drug_with_no_known_targets():

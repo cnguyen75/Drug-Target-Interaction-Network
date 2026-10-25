@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from rdkit import DataStructs
 
+
 # Carbon atom in SMILES: aromatic c, or C not starting a two-letter element (Cl, Ca, Cu, ...).
 _CARBON = re.compile(r"c|C(?![ladeflmnorsu])")
 
@@ -82,11 +83,15 @@ def _attribute_lines(G, attr, drug, target, node_is_drug, label):
     if drug in attr.fps:
         with_fp = [b for b in binders if b in attr.fps]
         if with_fp:
-            sims = DataStructs.BulkTanimotoSimilarity(attr.fps[drug], [attr.fps[b] for b in with_fp])
+            sims = DataStructs.BulkTanimotoSimilarity(
+                attr.fps[drug], [attr.fps[b] for b in with_fp]
+            )
             i = int(np.argmax(sims))
             if sims[i] >= STRUCTURE_CUTOFF:
-                lines["structure"] = (f"Structurally similar to {lab(with_fp[i])} "
-                                      f"(Tanimoto {sims[i]:.2f}), which binds {it}.")
+                lines["structure"] = (
+                    f"Structurally similar to {lab(with_fp[i])} "
+                    f"(Tanimoto {sims[i]:.2f}), which binds {it}."
+                )
     if drug in attr.fps and lines["structure"] is None:
         best = (0.0, None, None)
         for f in sorted(attr.pfams.get(target, ())):
@@ -96,21 +101,26 @@ def _attribute_lines(G, attr, drug, target, node_is_drug, label):
                 cands = [b for b in G.neighbors(t2) if b != drug and b in attr.fps]
                 if not cands:
                     continue
-                sims = DataStructs.BulkTanimotoSimilarity(attr.fps[drug], [attr.fps[b] for b in cands])
+                sims = DataStructs.BulkTanimotoSimilarity(
+                    attr.fps[drug], [attr.fps[b] for b in cands]
+                )
                 j = int(np.argmax(sims))
                 if sims[j] > best[0]:
                     best = (sims[j], cands[j], t2)
         if best[0] >= STRUCTURE_CUTOFF:
-            lines["family"] = (f"Similar to {lab(best[1])} (Tanimoto {best[0]:.2f}), which binds "
-                            f"{lab(best[2])} in the same protein family.")
+            lines["family"] = (
+                f"Similar to {lab(best[1])} (Tanimoto {best[0]:.2f}), which binds "
+                f"{lab(best[2])} in the same protein family."
+            )
     cls = attr.chem_class.get(drug, "")
     if cls and binders:
         n = sum(attr.chem_class.get(b, "") == cls for b in binders)
         if n:
             whose = "its" if node_is_drug else "the drug's"
             verb = "shares" if n == 1 else "share"
-            lines["class"] = (f"{n} of {len(binders)} known binders {verb} {whose} chemical class "
-                              f"({cls}).")
+            lines["class"] = (
+                f"{n} of {len(binders)} known binders {verb} {whose} chemical class ({cls})."
+            )
     return lines
 
 
@@ -142,8 +152,11 @@ def evidence(G, node, partner, emb=None, max_names=2, label=None, attr=None):
         return lines["family"] or lines["class"]
 
     if attr is None and emb is not None and node in emb.index:
-        same_type = [n for n in emb.index if n in G and G.nodes[n]["node_type"] ==
-                     G.nodes[node]["node_type"] and n != node]
+        same_type = [
+            n
+            for n in emb.index
+            if n in G and G.nodes[n]["node_type"] == G.nodes[node]["node_type"] and n != node
+        ]
         vecs = emb.loc[same_type].values
         v = emb.loc[node].values
         sims = vecs @ v / (np.linalg.norm(vecs, axis=1) * np.linalg.norm(v) + 1e-12)
@@ -163,8 +176,9 @@ def rank_key(G, item):
     return (-round(float(score), 6), G.degree(partner), partner)
 
 
-def neighbourhood(G, node, scores, min_score, max_known=24, max_related=8, max_predicted=5,
-                  keep=None):
+def neighbourhood(
+    G, node, scores, min_score, max_known=24, max_related=8, max_predicted=5, keep=None
+):
     """Nodes and edges around `node` for the network figure and the table view.
 
     Known partners are ordered most-connected first and capped at max_known.
@@ -184,14 +198,21 @@ def neighbourhood(G, node, scores, min_score, max_known=24, max_related=8, max_p
                 related.setdefault(other, set()).add(k)
     related_shown = sorted(related, key=lambda o: (-len(related[o]), -G.degree(o), o))[:max_related]
 
-    predicted = [(p, s) for p, s in sorted(scores.items(), key=lambda x: rank_key(G, x))
-                 if s >= min_score and p not in known_set][:max_predicted]
+    predicted = [
+        (p, s)
+        for p, s in sorted(scores.items(), key=lambda x: rank_key(G, x))
+        if s >= min_score and p not in known_set
+    ][:max_predicted]
 
     edges = [{"source": node, "target": k, "kind": "known"} for k in known_shown]
-    edges += [{"source": o, "target": k, "kind": "shared"}
-              for o in related_shown for k in sorted(related[o])]
-    edges += [{"source": node, "target": p, "kind": "predicted", "score": float(s)}
-              for p, s in predicted]
+    edges += [
+        {"source": o, "target": k, "kind": "shared"}
+        for o in related_shown
+        for k in sorted(related[o])
+    ]
+    edges += [
+        {"source": node, "target": p, "kind": "predicted", "score": float(s)} for p, s in predicted
+    ]
     return {
         "center": node,
         "known": known_shown,
@@ -227,8 +248,9 @@ def radial_layout(nb):
 
     def mean_angle(o):
         shared = nb["related_shared"][o]
-        a = math.atan2(sum(math.sin(angle[k]) for k in shared),
-                       sum(math.cos(angle[k]) for k in shared))
+        a = math.atan2(
+            sum(math.sin(angle[k]) for k in shared), sum(math.cos(angle[k]) for k in shared)
+        )
         return a % (2 * math.pi)
 
     related = sorted(nb["related"], key=lambda o: (mean_angle(o), o))
@@ -241,11 +263,16 @@ def edge_table(G, nb):
     """Rows for "view as table"."""
     rows = []
     for e in nb["edges"]:
-        rows.append({
-            "from": G.nodes[e["source"]].get("name") or e["source"],
-            "to": G.nodes[e["target"]].get("name") or e["target"],
-            "relation": {"known": "known interaction", "shared": "shares this partner",
-                         "predicted": "predicted link"}[e["kind"]],
-            "score": f"{e['score']:.2f}" if "score" in e else "",
-        })
+        rows.append(
+            {
+                "from": G.nodes[e["source"]].get("name") or e["source"],
+                "to": G.nodes[e["target"]].get("name") or e["target"],
+                "relation": {
+                    "known": "known interaction",
+                    "shared": "shares this partner",
+                    "predicted": "predicted link",
+                }[e["kind"]],
+                "score": f"{e['score']:.2f}" if "score" in e else "",
+            }
+        )
     return pd.DataFrame(rows, columns=["from", "to", "relation", "score"])

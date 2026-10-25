@@ -3,10 +3,12 @@
 import os
 import sys
 
+
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 sys.path.append(os.path.dirname(__file__))
-from pipeline.link_prediction import DTILinkPredictor, bootstrap_ci
 from synthetic import synthetic_tables
+
+from pipeline.link_prediction import DTILinkPredictor, bootstrap_ci
 
 
 def _predictor(split, train_negatives="uniform"):
@@ -73,7 +75,6 @@ def test_bootstrap_ci_brackets_point_estimate():
 
 
 def test_score_candidates_matches_per_pair_features():
-    from synthetic import synthetic_tables
     from pipeline.embeddings import embed_graph
 
     p = _predictor("final")
@@ -116,10 +117,10 @@ def test_degree_matched_training_negatives_and_calibration():
     p.validate()
     p.calibrate("isotonic")
     s = p.score_pairs(p.val_edges[:5])
-    assert ((0 <= s) & (s <= 1)).all()
+    assert ((s >= 0) & (s <= 1)).all()
     p.calibrate("platt")
     s2 = p.score_pairs(p.val_edges[:5])
-    assert ((0 <= s2) & (s2 <= 1)).all()
+    assert ((s2 >= 0) & (s2 <= 1)).all()
 
 
 def test_degree_matched_negatives_match_message_graph_degree():
@@ -127,7 +128,9 @@ def test_degree_matched_negatives_match_message_graph_degree():
     p = _predictor("drug_holdout")
     negs = p.sample_negatives(p.test_edges)
     for (_, t), (_, nt) in zip(p.test_edges, negs):
-        assert p._degree_bin(t) == p._degree_bin(nt) or abs(p._degree_bin(t) - p._degree_bin(nt)) == 1
+        assert (
+            p._degree_bin(t) == p._degree_bin(nt) or abs(p._degree_bin(t) - p._degree_bin(nt)) == 1
+        )
     same = sum(p._degree_bin(t) == p._degree_bin(nt) for (_, t), (_, nt) in zip(p.test_edges, negs))
     assert same / len(negs) > 0.9
     isolated_pos = sum(p.train_graph.degree(t) == 0 for _, t in p.test_edges)

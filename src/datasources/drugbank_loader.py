@@ -12,27 +12,38 @@ Writes data_raw/drugs_full.parquet, targets_full.parquet and dti_full.parquet,
 which app.py and scripts/train_ml_models.py read.
 """
 
+from contextlib import contextmanager
 import json
 import os
+from pathlib import Path
 import sys
 import zipfile
-from contextlib import contextmanager
-from pathlib import Path
-from typing import Tuple
 
-import pandas as pd
 from lxml import etree
+import pandas as pd
+
 
 # Add src to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from config import DRUGS_FP, DTI_FP, RAW_XML, TARGETS_FP
 
+
 NS_URI = "http://www.drugbank.ca"
 NS = {"db": NS_URI}
 HUMAN_LABELS = {"Humans", "Homo sapiens"}
 
-DRUG_COLUMNS = ["drug_id", "name", "type", "groups", "approved", "atc_codes", "atc_l1",
-                "atc_l2", "indications", "smiles"]
+DRUG_COLUMNS = [
+    "drug_id",
+    "name",
+    "type",
+    "groups",
+    "approved",
+    "atc_codes",
+    "atc_l1",
+    "atc_l2",
+    "indications",
+    "smiles",
+]
 TARGET_COLUMNS = ["target_id", "name", "gene_symbol", "organism", "is_human", "protein_family"]
 DTI_COLUMNS = ["drug_id", "target_id", "action"]
 
@@ -55,8 +66,9 @@ def _parse_drug(drug_elem, drugs_data, targets_data, dti_data):
     groups = [g.text for g in drug_elem.findall("db:groups/db:group", NS) if g.text]
     approved = "approved" in groups
 
-    atc_codes = [a.get("code") for a in drug_elem.findall("db:atc-codes/db:atc-code", NS)
-                 if a.get("code")]
+    atc_codes = [
+        a.get("code") for a in drug_elem.findall("db:atc-codes/db:atc-code", NS) if a.get("code")
+    ]
     atc_l1 = atc_l2 = None
     if atc_codes and len(atc_codes[0]) >= 3:
         atc_l1 = atc_codes[0][0]
@@ -68,18 +80,20 @@ def _parse_drug(drug_elem, drugs_data, targets_data, dti_data):
             smiles = _text(prop, "db:value")
             break
 
-    drugs_data.append({
-        "drug_id": drug_id,
-        "name": _text(drug_elem, "db:name"),
-        "type": drug_type,
-        "groups": ",".join(groups),
-        "approved": approved,
-        "atc_codes": ",".join(atc_codes) if atc_codes else None,
-        "atc_l1": atc_l1,
-        "atc_l2": atc_l2,
-        "indications": _text(drug_elem, "db:indication"),
-        "smiles": smiles,
-    })
+    drugs_data.append(
+        {
+            "drug_id": drug_id,
+            "name": _text(drug_elem, "db:name"),
+            "type": drug_type,
+            "groups": ",".join(groups),
+            "approved": approved,
+            "atc_codes": ",".join(atc_codes) if atc_codes else None,
+            "atc_l1": atc_l1,
+            "atc_l2": atc_l2,
+            "indications": _text(drug_elem, "db:indication"),
+            "smiles": smiles,
+        }
+    )
 
     for target_elem in drug_elem.findall("db:targets/db:target", NS):
         # Target ID (UniProt)
@@ -99,21 +113,25 @@ def _parse_drug(drug_elem, drugs_data, targets_data, dti_data):
         elif organism not in HUMAN_LABELS:
             continue
 
-        targets_data.append({
-            "target_id": target_id,
-            "name": _text(target_elem, "db:name") or _text(polypeptide, "db:name"),
-            "gene_symbol": _text(polypeptide, "db:gene-name"),
-            "organism": "Homo sapiens",
-            "is_human": True,
-            "protein_family": None,
-        })
+        targets_data.append(
+            {
+                "target_id": target_id,
+                "name": _text(target_elem, "db:name") or _text(polypeptide, "db:name"),
+                "gene_symbol": _text(polypeptide, "db:gene-name"),
+                "organism": "Homo sapiens",
+                "is_human": True,
+                "protein_family": None,
+            }
+        )
 
         actions = [a.text for a in target_elem.findall("db:actions/db:action", NS) if a.text]
-        dti_data.append({
-            "drug_id": drug_id,
-            "target_id": target_id,
-            "action": actions[0] if actions else "unknown",
-        })
+        dti_data.append(
+            {
+                "drug_id": drug_id,
+                "target_id": target_id,
+                "action": actions[0] if actions else "unknown",
+            }
+        )
 
 
 @contextmanager
@@ -132,7 +150,7 @@ def open_drugbank(path: Path):
             yield f
 
 
-def parse_drugbank_xml(xml_path: Path) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def parse_drugbank_xml(xml_path: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Parse DrugBank XML and extract drugs, targets, and interactions.
 
@@ -168,9 +186,11 @@ def parse_drugbank_xml(xml_path: Path) -> Tuple[pd.DataFrame, pd.DataFrame, pd.D
 
     drugs_df = pd.DataFrame(drugs_data, columns=DRUG_COLUMNS).drop_duplicates(subset=["drug_id"])
     targets_df = pd.DataFrame(targets_data, columns=TARGET_COLUMNS).drop_duplicates(
-        subset=["target_id"])
+        subset=["target_id"]
+    )
     dti_df = pd.DataFrame(dti_data, columns=DTI_COLUMNS).drop_duplicates(
-        subset=["drug_id", "target_id"])
+        subset=["drug_id", "target_id"]
+    )
 
     print(f"Parsed {len(drugs_df)} drugs, {len(targets_df)} targets, {len(dti_df)} interactions")
     parse_drugbank_xml.meta = meta
@@ -192,7 +212,8 @@ def main():
     targets_df.to_parquet(TARGETS_FP, index=False)
     dti_df.to_parquet(DTI_FP, index=False)
     (DRUGS_FP.parent / "drugbank_meta.json").write_text(
-        json.dumps({"file": RAW_XML.name, **parse_drugbank_xml.meta}, indent=2) + "\n")
+        json.dumps({"file": RAW_XML.name, **parse_drugbank_xml.meta}, indent=2) + "\n"
+    )
 
     print("Saved data to:")
     print(f"  Drugs: {DRUGS_FP}")

@@ -27,10 +27,12 @@ DATA_DIR = ensure_data_dir()
 
 # Raw DrugBank export: the .xml.zip as downloaded (or an extracted .xml).
 # It lives outside the repo; override with DRUGBANK_PATH.
-RAW_XML = Path(os.environ.get(
-    "DRUGBANK_PATH",
-    Path.home() / "Documents" / "drugbank" / "drugbank_all_full_database.xml.zip",
-)).expanduser()
+RAW_XML = Path(
+    os.environ.get(
+        "DRUGBANK_PATH",
+        Path.home() / "Documents" / "drugbank" / "drugbank_all_full_database.xml.zip",
+    )
+).expanduser()
 
 # Parsed tables (parquet), written by src/datasources/drugbank_loader.py
 DRUGS_FP = REPO_ROOT / "data_raw" / "drugs_full.parquet"
@@ -44,4 +46,3 @@ G_TARG_FP = DATA_DIR / "graph_target_projection.gpickle"
 
 # Embedding paths
 EMB_ALL_FP = DATA_DIR / "embeddings_all.parquet"
-

@@ -17,8 +17,9 @@ Writes results/results_cold_similarity.json.
 
 import json
 import os
-import sys
 from pathlib import Path
+import sys
+
 
 if os.environ.get("PYTHONHASHSEED") != "0":
     os.environ["PYTHONHASHSEED"] = "0"
@@ -27,6 +28,7 @@ if os.environ.get("PYTHONHASHSEED") != "0":
 import numpy as np
 import pandas as pd
 from rdkit import DataStructs
+
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(ROOT / "src"))
@@ -37,9 +39,14 @@ from pipeline.attributes import AttributeLinkPredictor  # noqa: E402
 from pipeline.embeddings import embed_graph  # noqa: E402
 from pipeline.link_prediction import DTILinkPredictor, _ranking_metrics, bootstrap_ci  # noqa: E402
 
+
 SEED = 42
-BINS = [("identical (>= 0.999)", 0.999, 1.01), ("close (0.7 to 0.999)", 0.7, 0.999),
-        ("moderate (0.4 to 0.7)", 0.4, 0.7), ("distant (< 0.4)", -0.01, 0.4)]
+BINS = [
+    ("identical (>= 0.999)", 0.999, 1.01),
+    ("close (0.7 to 0.999)", 0.7, 0.999),
+    ("moderate (0.4 to 0.7)", 0.4, 0.7),
+    ("distant (< 0.4)", -0.01, 0.4),
+]
 
 
 def main():
@@ -60,29 +67,41 @@ def main():
 
     pairs = attr.evaluation_results["test_pairs"]
     y = np.asarray(attr.evaluation_results["test_labels"])
-    scores = {"graph_model": np.asarray(graph.evaluation_results["test_scores"]),
-              "attribute_model": np.asarray(attr.evaluation_results["test_scores"]),
-              "structural_nearest_neighbour": np.array([attr.attribute_features(d, t)[0]
-                                                        for d, t in pairs])}
+    scores = {
+        "graph_model": np.asarray(graph.evaluation_results["test_scores"]),
+        "attribute_model": np.asarray(attr.evaluation_results["test_scores"]),
+        "structural_nearest_neighbour": np.array(
+            [attr.attribute_features(d, t)[0] for d, t in pairs]
+        ),
+    }
 
     seen = [d for d in attr.drug_nodes if attr.train_graph.degree(d) > 0 and d in attr.fps]
     seen_fps = [attr.fps[d] for d in seen]
     nearest = {}
     for d in set(attr.test_drugs):
-        nearest[d] = (max(DataStructs.BulkTanimotoSimilarity(attr.fps[d], seen_fps))
-                      if d in attr.fps else None)
+        nearest[d] = (
+            max(DataStructs.BulkTanimotoSimilarity(attr.fps[d], seen_fps))
+            if d in attr.fps
+            else None
+        )
 
     def summarise(mask, label):
         n_pos = int(y[mask].sum())
         drugs = len({pairs[i][0] for i in np.flatnonzero(mask)})
-        row = {"bin": label, "test_drugs": drugs, "test_positives": n_pos,
-               "test_negatives": int(mask.sum() - n_pos)}
+        row = {
+            "bin": label,
+            "test_drugs": drugs,
+            "test_positives": n_pos,
+            "test_negatives": int(mask.sum() - n_pos),
+        }
         if n_pos and mask.sum() - n_pos:
             for name, s in scores.items():
                 roc, ap = _ranking_metrics(y[mask], s[mask])
                 ci = bootstrap_ci(y[mask], s[mask], seed=SEED)
-                row[name] = {"roc_auc": round(float(roc), 4),
-                             "roc_auc_ci95": [round(v, 4) for v in ci["roc_auc_ci95"]]}
+                row[name] = {
+                    "roc_auc": round(float(roc), 4),
+                    "roc_auc_ci95": [round(v, 4) for v in ci["roc_auc_ci95"]],
+                }
         return row
 
     sim = np.array([nearest[d] if nearest[d] is not None else np.nan for d, _ in pairs])
@@ -92,13 +111,19 @@ def main():
     rows.append(summarise(np.isnan(sim), "no structure"))
     rows.append(summarise(~np.isnan(sim) & (sim < 0.999), "all except identical"))
 
-    out = {"command": "python scripts/analyze_cold_holdout.py",
-           "similarity": "max Tanimoto of the test drug to any drug with an edge in the message graph",
-           "rows": rows}
+    out = {
+        "command": "python scripts/analyze_cold_holdout.py",
+        "similarity": "max Tanimoto of the test drug to any drug with an edge in the message graph",
+        "rows": rows,
+    }
     Path("results/results_cold_similarity.json").write_text(json.dumps(out, indent=2) + "\n")
     for r in rows:
-        print(r["bin"], r["test_drugs"], r["test_positives"],
-              {k: r[k]["roc_auc"] for k in scores if k in r})
+        print(
+            r["bin"],
+            r["test_drugs"],
+            r["test_positives"],
+            {k: r[k]["roc_auc"] for k in scores if k in r},
+        )
 
 
 if __name__ == "__main__":

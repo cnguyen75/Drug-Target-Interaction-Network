@@ -26,11 +26,18 @@ from rdkit.Chem import rdFingerprintGenerator
 
 from pipeline.link_prediction import FEATURE_NAMES, DTILinkPredictor
 
+
 RDLogger.DisableLog("rdApp.*")
 
 ATTRIBUTE_FEATURES = [
-    "fp_max_binders", "fp_top3_binders", "fp_max_family", "category_max_jaccard",
-    "atc_max_jaccard", "same_class_share", "same_superclass_share", "has_structure",
+    "fp_max_binders",
+    "fp_top3_binders",
+    "fp_max_family",
+    "category_max_jaccard",
+    "atc_max_jaccard",
+    "same_class_share",
+    "same_superclass_share",
+    "has_structure",
 ]
 
 
@@ -65,14 +72,17 @@ class AttributeLinkPredictor(DTILinkPredictor):
             if mol is not None:
                 self.fps[d] = gen.GetFingerprint(mol)
         atc = dict(zip(drugs_df["drug_id"], drugs_df["atc_codes"]))
-        self.atc4 = {d: frozenset(c[:5] for c in (v if isinstance(v, str) else "").split(",")
-                                  if len(c) >= 5)
-                     for d, v in atc.items()}
+        self.atc4 = {
+            d: frozenset(c[:5] for c in (v if isinstance(v, str) else "").split(",") if len(c) >= 5)
+            for d, v in atc.items()
+        }
         da = self.drug_attrs
         self.categories = {d: _split(c) for d, c in zip(da.index, da["categories"])}
         self.chem_class = dict(zip(da.index, da["class"]))
         self.chem_superclass = dict(zip(da.index, da["superclass"]))
-        self.pfams = {t: _split(p) for t, p in zip(self.target_attrs.index, self.target_attrs["pfams"])}
+        self.pfams = {
+            t: _split(p) for t, p in zip(self.target_attrs.index, self.target_attrs["pfams"])
+        }
         self.pfam_targets = {}
         for t, fams in self.pfams.items():
             for f in fams:
@@ -105,10 +115,13 @@ class AttributeLinkPredictor(DTILinkPredictor):
     def _drug_attribute_matrix(self, d, targets):
         """attribute_features(d, t) for many targets t, computed from vectors."""
         n_all = len(self.all_drugs)
-        sims = (np.array(DataStructs.BulkTanimotoSimilarity(self.fps[d], self.fp_list))
-                if d in self.fps else None)
+        sims = (
+            np.array(DataStructs.BulkTanimotoSimilarity(self.fps[d], self.fp_list))
+            if d in self.fps
+            else None
+        )
         if sims is not None and d in self.fp_pos:
-            sims[self.fp_pos[d]] = -1.0          # never compare a drug with itself
+            sims[self.fp_pos[d]] = -1.0  # never compare a drug with itself
         cats = self.categories.get(d, frozenset())
         atc = self.atc4.get(d, frozenset())
 
@@ -124,8 +137,14 @@ class AttributeLinkPredictor(DTILinkPredictor):
 
         cat_j, atc_j = jaccards(self.categories, cats), jaccards(self.atc4, atc)
         cls, sup = self.chem_class.get(d, ""), self.chem_superclass.get(d, "")
-        cls_eq = np.array([self.chem_class.get(o, "") == cls for o in self.all_drugs]) if cls else None
-        sup_eq = np.array([self.chem_superclass.get(o, "") == sup for o in self.all_drugs]) if sup else None
+        cls_eq = (
+            np.array([self.chem_class.get(o, "") == cls for o in self.all_drugs]) if cls else None
+        )
+        sup_eq = (
+            np.array([self.chem_superclass.get(o, "") == sup for o in self.all_drugs])
+            if sup
+            else None
+        )
         has = 1.0 if d in self.fps else 0.0
         rows = []
         for t in targets:
@@ -148,8 +167,11 @@ class AttributeLinkPredictor(DTILinkPredictor):
 
     def _family_binders(self, t):
         if t not in self._family_cache:
-            related = set().union(*(self.pfam_targets.get(f, set()) for f in self.pfams.get(t, ()))) \
-                if self.pfams.get(t) else set()
+            related = (
+                set().union(*(self.pfam_targets.get(f, set()) for f in self.pfams.get(t, ())))
+                if self.pfams.get(t)
+                else set()
+            )
             related.discard(t)
             self._family_cache[t] = sorted({b for r in related for b in self._binders(r)})
         return self._family_cache[t]
@@ -165,18 +187,26 @@ class AttributeLinkPredictor(DTILinkPredictor):
         sims = self._sims(d, binders)
         fam = self._sims(d, [b for b in self._family_binders(t) if b != d])
         cls, sup = self.chem_class.get(d, ""), self.chem_superclass.get(d, "")
-        share = (lambda attr, val: -1.0 if not val or not binders
-                 else float(np.mean([attr.get(b, "") == val for b in binders])))
-        return np.array([
-            sims.max() if sims.size else -1.0,
-            np.sort(sims)[-3:].mean() if sims.size else -1.0,
-            fam.max() if fam.size else -1.0,
-            _jaccard_max(self.categories.get(d, frozenset()), [self.categories.get(b) for b in binders]),
-            _jaccard_max(self.atc4.get(d, frozenset()), [self.atc4.get(b) for b in binders]),
-            share(self.chem_class, cls),
-            share(self.chem_superclass, sup),
-            1.0 if d in self.fps else 0.0,
-        ], dtype=float)
+        share = lambda attr, val: (
+            -1.0
+            if not val or not binders
+            else float(np.mean([attr.get(b, "") == val for b in binders]))
+        )
+        return np.array(
+            [
+                sims.max() if sims.size else -1.0,
+                np.sort(sims)[-3:].mean() if sims.size else -1.0,
+                fam.max() if fam.size else -1.0,
+                _jaccard_max(
+                    self.categories.get(d, frozenset()), [self.categories.get(b) for b in binders]
+                ),
+                _jaccard_max(self.atc4.get(d, frozenset()), [self.atc4.get(b) for b in binders]),
+                share(self.chem_class, cls),
+                share(self.chem_superclass, sup),
+                1.0 if d in self.fps else 0.0,
+            ],
+            dtype=float,
+        )
 
     def _features(self, pairs):
         base = super()._features(pairs)
@@ -186,7 +216,8 @@ class AttributeLinkPredictor(DTILinkPredictor):
     def evaluate_test(self):
         perf = super().evaluate_test()
         self.evaluation_results["feature_importances"] = dict(
-            zip(FEATURE_NAMES + ATTRIBUTE_FEATURES, self.model.feature_importances_))
+            zip(FEATURE_NAMES + ATTRIBUTE_FEATURES, self.model.feature_importances_)
+        )
         return perf
 
     def _candidate_matrix(self, node, candidates):

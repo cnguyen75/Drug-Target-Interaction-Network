@@ -23,25 +23,46 @@ The attribution field must be shown wherever the demo appears.
 """
 
 import argparse
-import json
-import sys
 from datetime import date
+import json
 from pathlib import Path
+import sys
 
-import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(ROOT / "src"))
 from pipeline.explore import evidence, featured_mask, rank_key  # noqa: E402
 from pipeline.link_prediction import DTILinkPredictor  # noqa: E402
 
+
 DEMO_DRUGS = [
-    "Imatinib", "Gefitinib", "Tamoxifen", "Methotrexate", "Metformin", "Atorvastatin",
-    "Simvastatin", "Amlodipine", "Lisinopril", "Warfarin", "Clopidogrel", "Ibuprofen",
-    "Celecoxib", "Acetylsalicylic acid", "Morphine", "Sertraline", "Fluoxetine", "Haloperidol",
-    "Diazepam", "Sildenafil", "Omeprazole", "Loratadine", "Caffeine",
+    "Imatinib",
+    "Gefitinib",
+    "Tamoxifen",
+    "Methotrexate",
+    "Metformin",
+    "Atorvastatin",
+    "Simvastatin",
+    "Amlodipine",
+    "Lisinopril",
+    "Warfarin",
+    "Clopidogrel",
+    "Ibuprofen",
+    "Celecoxib",
+    "Acetylsalicylic acid",
+    "Morphine",
+    "Sertraline",
+    "Fluoxetine",
+    "Haloperidol",
+    "Diazepam",
+    "Sildenafil",
+    "Omeprazole",
+    "Loratadine",
+    "Caffeine",
 ]
-ATTRIBUTION = "Interaction data from DrugBank 5.1, used under CC BY-NC 4.0 for non-commercial purposes."
+ATTRIBUTION = (
+    "Interaction data from DrugBank 5.1, used under CC BY-NC 4.0 for non-commercial purposes."
+)
 # A well-known approved drug with no human targets in DrugBank (its one recorded
 # target is a yeast enzyme), to show the unseen-drug capability.
 DEMO_DRUGS_NO_TARGETS = ["Fluconazole"]
@@ -49,16 +70,20 @@ TOP_K = 5
 MAX_BYTES = 500_000
 
 
-REASON_KINDS = (("Structurally similar", "structural_similarity"),
-                ("Bound by", "shared_target_drugs"),
-                ("Similar to", "protein_family"),
-                ("known binders share", "chemical_class"))
+REASON_KINDS = (
+    ("Structurally similar", "structural_similarity"),
+    ("Bound by", "shared_target_drugs"),
+    ("Similar to", "protein_family"),
+    ("known binders share", "chemical_class"),
+)
 
 
 def reason(G, drug, target, model, label, with_text):
     """The app's evidence line for this suggestion, with its kind (text only if allowed)."""
     text = evidence(G, drug, target, label=label, attr=model)
-    kind = next((k for marker, k in REASON_KINDS if marker in text), "none")  # NO_EVIDENCE -> "none"
+    kind = next(
+        (k for marker, k in REASON_KINDS if marker in text), "none"
+    )  # NO_EVIDENCE -> "none"
     return {"kind": kind, "text": text} if with_text else {"kind": kind}
 
 
@@ -69,8 +94,10 @@ def main():
     args = ap.parse_args()
 
     results = json.loads((ROOT / "results" / "results_attributes.json").read_text())
-    copies = {k: DTILinkPredictor.load_model(ROOT / "models" / f"attribute_model_{k}.pkl")
-              for k in ("seen", "cold")}
+    copies = {
+        k: DTILinkPredictor.load_model(ROOT / "models" / f"attribute_model_{k}.pkl")
+        for k in ("seen", "cold")
+    }
     G = copies["seen"].G
     drugs = copies["seen"].drugs_df[featured_mask(copies["seen"].drugs_df)]
     by_name = dict(zip(drugs["name"], drugs["drug_id"]))
@@ -97,46 +124,58 @@ def main():
             "name": name,
             "model_copy": copy,
             "known_target_count": G.degree(d),
-            "candidates_at_or_above_default": int(sum(1 for s in scores.values()
-                                                      if s >= thresholds[copy])),
-            "predicted": [{
-                "rank": i + 1,
-                "uniprot": t,
-                "gene": genes.get(t) or None,
-                "score": round(float(s), 4),
-                "score_tied": shown.count(f"{s:.2f}") > 1,
-                "target_known_drug_count": G.degree(t),
-                "reason": reason(G, d, t, copies[copy], label, args.include_known),
-            } for i, (t, s) in enumerate(top)],
+            "candidates_at_or_above_default": int(
+                sum(1 for s in scores.values() if s >= thresholds[copy])
+            ),
+            "predicted": [
+                {
+                    "rank": i + 1,
+                    "uniprot": t,
+                    "gene": genes.get(t) or None,
+                    "score": round(float(s), 4),
+                    "score_tied": shown.count(f"{s:.2f}") > 1,
+                    "target_known_drug_count": G.degree(t),
+                    "reason": reason(G, d, t, copies[copy], label, args.include_known),
+                }
+                for i, (t, s) in enumerate(top)
+            ],
         }
         if args.include_known:
-            entry["known_targets"] = [{"uniprot": t, "gene": genes.get(t) or None}
-                                      for t in sorted(G.neighbors(d))]
+            entry["known_targets"] = [
+                {"uniprot": t, "gene": genes.get(t) or None} for t in sorted(G.neighbors(d))
+            ]
         out_drugs.append(entry)
 
     demo = {
         "schema_version": 1,
         "generated_on": date.today().isoformat(),
         "command": "python scripts/export_demo.py OUT.json"
-                   + (" --include-known" if args.include_known else ""),
+        + (" --include-known" if args.include_known else ""),
         "results_git_commit": results["git_commit"],
         "source": json.loads((ROOT / "results" / "results.json").read_text())["source"],
         "model": {
-            "description": ("v3: random forest on 12 graph and Node2Vec features plus 8 attribute "
-                            "features (structure, protein family, categories, ATC, chemical class)"),
+            "description": (
+                "v3: random forest on 12 graph and Node2Vec features plus 8 attribute "
+                "features (structure, protein family, categories, ATC, chemical class)"
+            ),
             "train_negatives": "degree_matched",
             "calibration": "isotonic",
             "copies": {"seen": "drugs with known targets", "cold": "drugs with no known targets"},
             "default_threshold": thresholds,
         },
         "attribution": ATTRIBUTION,
-        "contents": ("model outputs and public identifiers only" if not args.include_known
-                     else "model outputs, public identifiers and each drug's known targets "
-                          "(UniProt accession and gene symbol)"),
-        "score_note": ("Calibrated (per model copy) on validation pairs with one non-interaction per "
-                       "interaction; a "
-                       "ranking signal, not the chance an interaction is real. score_tied marks "
-                       "scores that round to the same two decimals as another shown candidate."),
+        "contents": (
+            "model outputs and public identifiers only"
+            if not args.include_known
+            else "model outputs, public identifiers and each drug's known targets "
+            "(UniProt accession and gene symbol)"
+        ),
+        "score_note": (
+            "Calibrated (per model copy) on validation pairs with one non-interaction per "
+            "interaction; a "
+            "ranking signal, not the chance an interaction is real. score_tied marks "
+            "scores that round to the same two decimals as another shown candidate."
+        ),
         "drugs": out_drugs,
         "not_found": missing,
     }
@@ -144,7 +183,9 @@ def main():
     if len(text.encode()) > MAX_BYTES:
         sys.exit(f"demo is {len(text.encode()):,} bytes, over {MAX_BYTES:,}")
     Path(args.out).write_text(text + "\n")
-    print(f"{len(out_drugs)} drugs, {len(text.encode()):,} bytes -> {args.out}; not found: {missing}")
+    print(
+        f"{len(out_drugs)} drugs, {len(text.encode()):,} bytes -> {args.out}; not found: {missing}"
+    )
 
 
 if __name__ == "__main__":

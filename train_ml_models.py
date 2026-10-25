@@ -18,14 +18,15 @@ Writes (all gitignored except results/results.json):
     data/embeddings_full.parquet          Node2Vec on the full graph (similarity, layout)
 """
 
+from datetime import date
 import json
 import os
+from pathlib import Path
 import platform
 import subprocess
 import sys
 import time
-from datetime import date
-from pathlib import Path
+
 
 if os.environ.get("PYTHONHASHSEED") != "0":
     # gensim seeds its initial vectors with hash(); fix it so runs are reproducible.
@@ -34,12 +35,14 @@ if os.environ.get("PYTHONHASHSEED") != "0":
 
 import pandas as pd
 
+
 sys.path.append(str(Path(__file__).parent / "src"))
 from config import DRUGS_FP, DTI_FP, RAW_XML, TARGETS_FP
 from pipeline.build_graph import build_bipartite_graph, graph_stats
 from pipeline.drug_repurposing import DrugRepurposer
 from pipeline.embeddings import embed_graph
 from pipeline.link_prediction import DTILinkPredictor
+
 
 SEED = 42
 CALIBRATION = "isotonic"
@@ -67,8 +70,10 @@ def metric_block(m):
 
 
 NEGATIVE_SCHEMES = ("uniform", "degree_matched")
-NEGATIVE_LABELS = {"uniform": "uniform random negatives",
-                   "degree_matched": "degree-matched negatives (same drug, similar-degree target)"}
+NEGATIVE_LABELS = {
+    "uniform": "uniform random negatives",
+    "degree_matched": "degree-matched negatives (same drug, similar-degree target)",
+}
 
 
 def fit_variants(kind, tables):
@@ -94,36 +99,67 @@ def select_scheme(variants):
     """Pick the training-negative scheme on per-drug validation (ROC AUC, then AP)."""
     val = {s: p.evaluation_results["model_performance"] for s, p in variants.items()}
     best = max(val, key=lambda s: (round(val[s]["val_auc"], 4), round(val[s]["val_ap_score"], 4)))
-    return best, {s: {"roc_auc": r4(v["val_auc"]), "average_precision": r4(v["val_ap_score"]),
-                      "positives": v["val_positives"], "negatives": v["val_negatives"]}
-                  for s, v in val.items()}
+    return best, {
+        s: {
+            "roc_auc": r4(v["val_auc"]),
+            "average_precision": r4(v["val_ap_score"]),
+            "positives": v["val_positives"],
+            "negatives": v["val_negatives"],
+        }
+        for s, v in val.items()
+    }
 
 
 def model_block(p):
     mp = p.evaluation_results["model_performance"]
     return {
-        **metric_block({"roc_auc": mp["auc"], "roc_auc_ci95": mp["roc_auc_ci95"],
-                        "ap_score": mp["ap_score"], "ap_ci95": mp["ap_ci95"]}),
+        **metric_block(
+            {
+                "roc_auc": mp["auc"],
+                "roc_auc_ci95": mp["roc_auc_ci95"],
+                "ap_score": mp["ap_score"],
+                "ap_ci95": mp["ap_ci95"],
+            }
+        ),
         "pr_auc_trapezoidal": r4(mp["pr_auc"]),
         "brier_score": r4(mp["brier_score"]),
         "validation": {"roc_auc": r4(mp["val_auc"]), "average_precision": r4(mp["val_ap_score"])},
-        "feature_importances": {k: r4(v) for k, v in
-                                p.evaluation_results["feature_importances"].items()},
+        "feature_importances": {
+            k: r4(v) for k, v in p.evaluation_results["feature_importances"].items()
+        },
     }
 
 
 def split_summary(variants):
     ref = variants["uniform"]
     ev, mp = ref.evaluation_results, ref.evaluation_results["model_performance"]
-    counts = {k: mp[k] for k in ("message_edges", "fit_positives", "val_positives",
-                                 "test_positives", "test_negatives", "test_drugs") if k in mp}
+    counts = {
+        k: mp[k]
+        for k in (
+            "message_edges",
+            "fit_positives",
+            "val_positives",
+            "test_positives",
+            "test_negatives",
+            "test_drugs",
+        )
+        if k in mp
+    }
     return {
         "description": mp["split_description"],
         "counts": counts,
         "models": {s: model_block(p) for s, p in variants.items()},
-        "baselines": {name: metric_block({"roc_auc": b["roc_auc"], "roc_auc_ci95": b["roc_auc_ci95"],
-                                          "ap_score": b["ap_score"], "ap_ci95": b["ap_ci95"]})
-                      for name, b in ev["baselines"].items()},
+        "baselines": {
+            name: metric_block(
+                {
+                    "roc_auc": b["roc_auc"],
+                    "roc_auc_ci95": b["roc_auc_ci95"],
+                    "ap_score": b["ap_score"],
+                    "ap_ci95": b["ap_ci95"],
+                }
+            )
+            for name, b in ev["baselines"].items()
+        },
         "bootstrap_resamples": mp["n_boot"],
     }
 
@@ -149,9 +185,16 @@ def main():
     for variants in splits.values():
         for p in variants.values():
             p.evaluate_test()
-    pd.to_pickle({kind: {s: {k: v for k, v in p.evaluation_results.items() if k != "test_pairs"}
-                         for s, p in variants.items()}
-                  for kind, variants in splits.items()}, "models/evaluation_results.pkl")
+    pd.to_pickle(
+        {
+            kind: {
+                s: {k: v for k, v in p.evaluation_results.items() if k != "test_pairs"}
+                for s, p in variants.items()
+            }
+            for kind, variants in splits.items()
+        },
+        "models/evaluation_results.pkl",
+    )
 
     print(f"[final] training the app's model on all edges ({chosen})...")
     final = DTILinkPredictor(seed=SEED, train_negatives=chosen)
@@ -171,8 +214,9 @@ def main():
     repurposer.load_data(drugs_df, targets_df, dti_df, emb_full)
     pd.to_pickle(repurposer, "models/drug_repurposing_model.pkl")
 
-    commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
-                            capture_output=True, text=True).stdout.strip()
+    commit = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True
+    ).stdout.strip()
     results = {
         "commands": [DATA_COMMAND, COMMAND],
         "git_commit": commit,
@@ -192,25 +236,33 @@ def main():
             "approved_drugs": int(drugs_df["approved"].sum()),
         },
         "model": "RandomForestClassifier(n_estimators=100) on 12 graph and Node2Vec features",
-        "metrics_note": ("ROC AUC and average precision on held-out pairs (1:1 positives to "
-                         "negatives); 95% percentile bootstrap intervals over test pairs. Each "
-                         "model is fitted on 75% of the training positives; the other 25% are "
-                         "validation. "
-                         "Chance and common neighbours tie every pair, so both score 0.5 by "
-                         "construction."),
+        "metrics_note": (
+            "ROC AUC and average precision on held-out pairs (1:1 positives to "
+            "negatives); 95% percentile bootstrap intervals over test pairs. Each "
+            "model is fitted on 75% of the training positives; the other 25% are "
+            "validation. "
+            "Chance and common neighbours tie every pair, so both score 0.5 by "
+            "construction."
+        ),
         "splits": {kind: split_summary(v) for kind, v in splits.items()},
         "negative_schemes": NEGATIVE_LABELS,
         "app_model": {
             "train_negatives": chosen,
-            "selected_by": ("higher ROC AUC on the per-drug split's validation drugs, "
-                            "measured before any test pair was scored"),
+            "selected_by": (
+                "higher ROC AUC on the per-drug split's validation drugs, "
+                "measured before any test pair was scored"
+            ),
             "per_drug_validation": val_table,
             "calibration": CALIBRATION,
-            "calibration_note": ("isotonic regression fitted on the app model's validation pairs "
-                                 "(1:1 known interactions to degree-matched non-interactions)"),
-            "validation": {"roc_auc": r4(final_mp["val_auc"]),
-                           "average_precision": r4(final_mp["val_ap_score"]),
-                           "positives": final_mp["val_positives"]},
+            "calibration_note": (
+                "isotonic regression fitted on the app model's validation pairs "
+                "(1:1 known interactions to degree-matched non-interactions)"
+            ),
+            "validation": {
+                "roc_auc": r4(final_mp["val_auc"]),
+                "average_precision": r4(final_mp["val_ap_score"]),
+                "positives": final_mp["val_positives"],
+            },
             "split": final_mp["split_description"],
         },
     }

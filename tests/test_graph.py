@@ -5,10 +5,12 @@ import sys
 
 import pandas as pd
 
+
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 sys.path.append(os.path.dirname(__file__))
-from pipeline.build_graph import build_bipartite_graph, graph_stats
 from synthetic import synthetic_tables
+
+from pipeline.build_graph import build_bipartite_graph, graph_stats
 
 
 def test_bipartite_and_typed():
