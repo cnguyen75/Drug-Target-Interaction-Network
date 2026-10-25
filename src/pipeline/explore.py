@@ -189,7 +189,10 @@ def evidence(
         linked = [n for n in nearest if G.has_edge(n, partner)][:max_names]
         if linked:
             kind = "drugs" if is_drug else "targets"
-            return f"Among its 25 nearest {kind} in the embedding, {_join(_names(G, linked, label))} link to it."
+            return (
+                f"Among its 25 nearest {kind} in the embedding, "
+                f"{_join(_names(G, linked, label))} link to it."
+            )
     if attr is not None:
         return NO_EVIDENCE
     return "No shared-target path in the data; the score comes from degree and embedding position."

@@ -76,7 +76,6 @@ def test_attribute_features_use_message_graph_only() -> None:
     f = dict(zip(ATTRIBUTE_FEATURES, p.attribute_features(d, t)))
     assert d not in p._binders(t)  # its own (hidden) edge is not a binder
     assert -1.0 <= f["fp_max_binders"] <= 1.0
-    # identical structure to a binder gives similarity 1
     binders = p._binders(t)
     twin = next(
         (

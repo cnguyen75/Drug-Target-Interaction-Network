@@ -21,7 +21,6 @@ def ensure_data_dir() -> Path:
     return data_dir
 
 
-# Repository root and data directory
 REPO_ROOT = get_repo_root()
 DATA_DIR = ensure_data_dir()
 
@@ -34,15 +33,12 @@ RAW_XML = Path(
     )
 ).expanduser()
 
-# Parsed tables (parquet), written by src/datasources/drugbank_loader.py
 DRUGS_FP = REPO_ROOT / "data_raw" / "drugs_full.parquet"
 TARGETS_FP = REPO_ROOT / "data_raw" / "targets_full.parquet"
 DTI_FP = REPO_ROOT / "data_raw" / "dti_full.parquet"
 
-# Graph paths (gpickle)
 G_BIP_FP = DATA_DIR / "graph_bipartite.gpickle"
 G_DRUG_FP = DATA_DIR / "graph_drug_projection.gpickle"
 G_TARG_FP = DATA_DIR / "graph_target_projection.gpickle"
 
-# Embedding paths
 EMB_ALL_FP = DATA_DIR / "embeddings_all.parquet"

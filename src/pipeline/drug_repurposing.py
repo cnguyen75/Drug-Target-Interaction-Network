@@ -32,17 +32,14 @@ class DrugRepurposer:
         self.dti_df = dti_df
 
         if embeddings_df is not None:
-            # Check if node_id is already the index
             if embeddings_df.index.name == "node_id":
                 self.embeddings_df = embeddings_df
             else:
-                # Set node_id as index if it's a column
                 if "node_id" in embeddings_df.columns:
                     self.embeddings_df = embeddings_df.set_index("node_id")
                 else:
                     self.embeddings_df = embeddings_df
 
-            # Separate drug and target embeddings
             drug_nodes = set(drugs_df["drug_id"])
             target_nodes = set(targets_df["target_id"])
 
@@ -50,7 +47,8 @@ class DrugRepurposer:
             self.target_embeddings = self.embeddings_df[self.embeddings_df.index.isin(target_nodes)]
 
             print(
-                f"Loaded embeddings: {len(self.drug_embeddings)} drugs, {len(self.target_embeddings)} targets"
+                f"Loaded embeddings: {len(self.drug_embeddings)} drugs, "
+                f"{len(self.target_embeddings)} targets"
             )
         else:
             print("No embeddings provided. Drug repurposing will use network-based similarity.")
@@ -65,16 +63,12 @@ class DrugRepurposer:
         drug_info = self.drugs_df[self.drugs_df["drug_id"] == drug_id].iloc[0]
 
         if self.drug_embeddings is not None and drug_id in self.drug_embeddings.index:
-            # Use embeddings for similarity
             drug_embedding = self.drug_embeddings.loc[drug_id].values.reshape(1, -1)
 
-            # Calculate similarities with all other drugs
             similarities = cosine_similarity(drug_embedding, self.drug_embeddings.values)[0]
 
-            # Create similarity pairs
             similarity_pairs = list(zip(self.drug_embeddings.index, similarities))
 
-            # Filter and sort
             similar_drugs = []
             for similar_drug_id, similarity in similarity_pairs:
                 if similar_drug_id != drug_id and similarity >= similarity_threshold:
@@ -91,11 +85,9 @@ class DrugRepurposer:
                         }
                     )
 
-            # Sort by similarity and return top_k
             similar_drugs.sort(key=lambda x: x["similarity"], reverse=True)
             return similar_drugs[:top_k]
 
-        # Use network-based similarity (target overlap)
         drug_targets = set(self.dti_df[self.dti_df["drug_id"] == drug_id]["target_id"])
 
         similar_drugs = []
@@ -121,7 +113,6 @@ class DrugRepurposer:
                             }
                         )
 
-        # Sort by similarity and return top_k
         similar_drugs.sort(key=lambda x: x["similarity"], reverse=True)
         return similar_drugs[:top_k]
 

@@ -2,7 +2,8 @@
 
 Usage:
     python src/datasources/drugbank_loader.py
-    DRUGBANK_PATH=/path/to/drugbank_all_full_database.xml.zip python src/datasources/drugbank_loader.py
+    DRUGBANK_PATH=/path/to/drugbank_all_full_database.xml.zip \
+        python src/datasources/drugbank_loader.py
 
 Reads the DrugBank export (zipped or plain XML) from DRUGBANK_PATH, default
 ~/Documents/drugbank/drugbank_all_full_database.xml.zip. A zip is streamed
@@ -25,7 +26,6 @@ from lxml import etree
 import pandas as pd
 
 
-# Add src to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from config import DRUGS_FP, DTI_FP, RAW_XML, TARGETS_FP
 
@@ -103,7 +103,6 @@ def _parse_drug(
     )
 
     for target_elem in drug_elem.findall("db:targets/db:target", NS):
-        # Target ID (UniProt)
         polypeptide = target_elem.find("db:polypeptide", NS)
         if polypeptide is None or not polypeptide.get("id"):
             continue

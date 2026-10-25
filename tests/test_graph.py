@@ -40,7 +40,6 @@ def test_most_connected_no_duplicates_and_ranked() -> None:
     from pipeline.build_graph import most_connected
 
     drugs, targets, dti = synthetic_tables()
-    # Duplicate a drug row and an interaction row, as the old tables could.
     drugs = pd.concat([drugs, drugs.iloc[[0]]])
     dti = pd.concat([dti, dti.iloc[[0]]])
     top = most_connected(dti, drugs, "drug_id", n=10)

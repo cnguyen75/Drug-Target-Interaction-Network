@@ -107,7 +107,8 @@ def main() -> None:
     results["app_suggestions"] = block
     RESULTS_FP.write_text(json.dumps(results, indent=2) + "\n")
     print(
-        f"{out['drug_id'].nunique()} drugs, {len(out)} predicted links -> models/predictions.parquet"
+        f"{out['drug_id'].nunique()} drugs, {len(out)} predicted links -> "
+        "models/predictions.parquet"
     )
     print(json.dumps(block, indent=2))
 

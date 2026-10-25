@@ -171,8 +171,6 @@ class DTILinkPredictor:
     def _sorted_edges(self) -> list[Edge]:
         return sorted((a, b) if a in self.drug_nodes else (b, a) for a, b in self.G.edges())
 
-    # ----- splits -------------------------------------------------------------
-
     def split_edges(self, kind: str = "random") -> tuple[list[Edge], list[Edge]]:
         """Split known edges into message / train / test sets (seeded). Returns (train, test)."""
         edges = self._sorted_edges()
@@ -316,8 +314,6 @@ class DTILinkPredictor:
 
         return hide(self.train_drugs), hide(self.test_drugs)
 
-    # ----- negatives ----------------------------------------------------------
-
     def sample_negatives(
         self,
         positives: list[Edge],
@@ -396,8 +392,6 @@ class DTILinkPredictor:
             negatives.append((d, cand))
         return negatives
 
-    # ----- features -----------------------------------------------------------
-
     def extract_features_safe(
         self, drug_id: str, target_id: str, use_train_graph: bool = True
     ) -> np.ndarray:
@@ -456,8 +450,6 @@ class DTILinkPredictor:
 
     def _features(self, pairs: Iterable[Edge]) -> np.ndarray:
         return np.vstack([self.extract_features_safe(d, t) for d, t in pairs])
-
-    # ----- training and evaluation -------------------------------------------
 
     def train_model(self, evaluate_test: bool = True) -> dict[str, Any]:
         """Fit on the fit pairs, score the validation pairs, and (optionally) the test pairs."""

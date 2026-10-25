@@ -7,7 +7,6 @@ import sys
 import pandas as pd
 
 
-# Add src to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
 from datasources.drugbank_loader import parse_drugbank_xml
 
@@ -21,7 +20,6 @@ class TestDrugBankIngest:
 
         drugs_df, targets_df, dti_df = parse_drugbank_xml(xml_path)
 
-        # Check required columns exist
         required_drug_cols = [
             "drug_id",
             "name",
@@ -50,15 +48,12 @@ class TestDrugBankIngest:
 
         drugs_df, _, _ = parse_drugbank_xml(xml_path)
 
-        # Check approved drugs
         approved_drugs = drugs_df[drugs_df["approved"]]
         assert len(approved_drugs) == 2, "Should have 2 approved drugs"
 
-        # Check unapproved drugs
         unapproved_drugs = drugs_df[~drugs_df["approved"]]
         assert len(unapproved_drugs) == 1, "Should have 1 unapproved drug"
 
-        # Check specific drug IDs
         assert "DB00001" in approved_drugs["drug_id"].values
         assert "DB00002" in approved_drugs["drug_id"].values
         assert "DB00003" in unapproved_drugs["drug_id"].values
@@ -69,15 +64,12 @@ class TestDrugBankIngest:
 
         _, targets_df, _ = parse_drugbank_xml(xml_path)
 
-        # All targets should be human
         assert all(targets_df["organism"] == "Homo sapiens"), "All targets should be human"
 
-        # Should have 2 unique human targets
         assert len(targets_df) == 2, "Should have 2 human targets"
         assert "P12345" in targets_df["target_id"].values
         assert "P67890" in targets_df["target_id"].values
 
-        # Mouse targets should be excluded (by label, and by taxonomy ID)
         assert "P99999" not in targets_df["target_id"].values
         assert "P88888" not in targets_df["target_id"].values
 
@@ -87,17 +79,14 @@ class TestDrugBankIngest:
 
         drugs_df, targets_df, dti_df = parse_drugbank_xml(xml_path)
 
-        # All drugs should have valid IDs
         assert not drugs_df["drug_id"].isna().any(), "No drug should have missing ID"
         assert not drugs_df["drug_id"].str.strip().eq("").any(), "No drug should have empty ID"
 
-        # All targets should have valid IDs
         assert not targets_df["target_id"].isna().any(), "No target should have missing ID"
         assert not targets_df["target_id"].str.strip().eq("").any(), (
             "No target should have empty ID"
         )
 
-        # All DTI edges should have valid endpoints
         assert not dti_df["drug_id"].isna().any(), "No DTI should have missing drug ID"
         assert not dti_df["target_id"].isna().any(), "No DTI should have missing target ID"
 
@@ -107,13 +96,10 @@ class TestDrugBankIngest:
 
         drugs_df, targets_df, dti_df = parse_drugbank_xml(xml_path)
 
-        # Check no duplicate drugs
         assert len(drugs_df) == len(drugs_df.drop_duplicates(subset=["drug_id"]))
 
-        # Check no duplicate targets
         assert len(targets_df) == len(targets_df.drop_duplicates(subset=["target_id"]))
 
-        # Check no duplicate DTI edges
         assert len(dti_df) == len(dti_df.drop_duplicates(subset=["drug_id", "target_id"]))
 
     def test_atc_code_parsing(self) -> None:
@@ -122,7 +108,6 @@ class TestDrugBankIngest:
 
         drugs_df, _, _ = parse_drugbank_xml(xml_path)
 
-        # Check ATC L1 parsing
         drug1 = drugs_df[drugs_df["drug_id"] == "DB00001"].iloc[0]
         assert drug1["atc_l1"] == "A"
         assert drug1["atc_l2"] == "A01"
@@ -137,11 +122,9 @@ class TestDrugBankIngest:
 
         drugs_df, _, _ = parse_drugbank_xml(xml_path)
 
-        # Check SMILES for drug with calculated properties
         drug1 = drugs_df[drugs_df["drug_id"] == "DB00001"].iloc[0]
         assert drug1["smiles"] == "CC(C)CC1=CC=C(C=C1)C(C)C(=O)O"
 
-        # Check SMILES for drug without calculated properties
         drug2 = drugs_df[drugs_df["drug_id"] == "DB00002"].iloc[0]
         assert pd.isna(drug2["smiles"])
 

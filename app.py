@@ -71,9 +71,6 @@ ATTRIBUTION = (
 )
 
 
-# ----- data ------------------------------------------------------------------
-
-
 def load() -> tuple[
     pd.DataFrame,
     pd.DataFrame,
@@ -195,15 +192,15 @@ def copy_for(node: str) -> str:
 
 
 def suggestions(node: str) -> dict[str, float]:
-    """Scores for unlinked partners. A target's suggestions are featured drugs with known targets."""
+    """Scores for unlinked partners.
+
+    A target's suggestions are featured drugs with known targets.
+    """
     model = COPIES[copy_for(node)]
     if is_drug(node):
         return model.score_candidates(node)
     cands = [d for d in sorted(FEATURED) if G.degree(d) > 0 and not G.has_edge(node, d)]
     return model.score_candidates(node, cands)
-
-
-# ----- small components ------------------------------------------------------
 
 
 def mono(text: str | None = None, className: str = "mono", **kw: Any) -> html.Span:
@@ -223,7 +220,8 @@ def header() -> html.Div:
                     html.Div(
                         [
                             mono(
-                                "drugbank · node2vec · chemical structure · random forest link prediction"
+                                "drugbank · node2vec · chemical structure · random forest link "
+                                "prediction"
                             ),
                             html.H1("Drug–target interaction network"),
                         ],
@@ -285,9 +283,6 @@ def nav(pathname: str) -> list[Component]:
         else dcc.Link(name, href=href, className="nav-link")
         for name, href in VIEWS
     ]
-
-
-# ----- explore view ----------------------------------------------------------
 
 
 def key_item(svg: Component, text: str) -> html.Div:
@@ -651,8 +646,8 @@ def details_panel(
         more = html.Div(
             [
                 mono(
-                    f"{len(ranked)} candidate{'s' if len(ranked) != 1 else ''} at {min_score:.2f} or above"
-                    + ("; top 5 shown" if len(ranked) > 5 else "")
+                    f"{len(ranked)} candidate{'s' if len(ranked) != 1 else ''} at {min_score:.2f} "
+                    "or above" + ("; top 5 shown" if len(ranked) > 5 else "")
                 ),
                 html.Div(
                     "= marks tied scores; the model cannot order those candidates.",
@@ -692,10 +687,12 @@ def details_panel(
                 [
                     html.Div(heading, className="field-title"),
                     html.Div(
-                        "Ranked by calibrated score, then by how rare the target is. A score of 0.9 "
+                        "Ranked by calibrated score, then by how rare the target is. A score of "
+                        "0.9 "
                         "means that, in validation, 90% of pairs scored that high were known "
                         "interactions in a sample with one non-interaction per interaction. Real "
-                        "non-interactions are far more common, so read it as a ranking, not a chance "
+                        "non-interactions are far more common, so read it as a ranking, not a "
+                        "chance "
                         "the interaction is real.",
                         className="secondary small",
                     ),
@@ -706,9 +703,6 @@ def details_panel(
         ],
         className="details-inner",
     )
-
-
-# ----- predictions view ------------------------------------------------------
 
 
 def prediction_table(rows_df: pd.DataFrame) -> html.Div:
@@ -787,11 +781,16 @@ def predictions_view() -> html.Section:
                     className="card-head",
                 ),
                 html.P(
-                    "Each featured drug's highest-scoring target it has no recorded interaction with. "
-                    "Featured means an approved small molecule, excluding ions, salts and supplements. "
-                    "Ranked by calibrated score, then by target specificity: at equal scores, a target "
-                    "with fewer known drugs ranks above a very common one. The known-drugs column shows "
-                    "how popular each target already is. These are hypotheses ranked by a model, not "
+                    "Each featured drug's highest-scoring target it has no recorded interaction "
+                    "with. "
+                    "Featured means an approved small molecule, excluding ions, salts and "
+                    "supplements. "
+                    "Ranked by calibrated score, then by target specificity: at equal scores, a "
+                    "target "
+                    "with fewer known drugs ranks above a very common one. The known-drugs column "
+                    "shows "
+                    "how popular each target already is. These are hypotheses ranked by a model, "
+                    "not "
                     "findings.",
                     className="secondary",
                 ),
@@ -803,7 +802,8 @@ def predictions_view() -> html.Section:
                     className="card-head",
                 ),
                 html.P(
-                    "Scored by the whole-drug model from structure, chemical class and categories alone.",
+                    "Scored by the whole-drug model from structure, chemical class and categories "
+                    "alone.",
                     className="secondary small",
                 ),
                 prediction_table(cold),
@@ -816,9 +816,6 @@ def predictions_view() -> html.Section:
             className="card",
         )
     )
-
-
-# ----- evaluation view -------------------------------------------------------
 
 
 def metric_bar(name: str, block: dict[str, Any], colour: str, key: str = "roc_auc") -> html.Div:
@@ -930,12 +927,15 @@ def headline() -> html.Div:
                         f"{test:.2f} on the test set; {val:.2f} on the smaller validation set."
                     ),
                     html.Li(
-                        f"About {abl:.2f} (validation) when curated DrugBank categories and ATC codes are "
-                        "removed. Those are partly assigned because a drug's targets are already known, "
+                        f"About {abl:.2f} (validation) when curated DrugBank categories and ATC "
+                        "codes are "
+                        "removed. Those are partly assigned because a drug's targets are already "
+                        "known, "
                         "so this is the fairer expectation for a genuinely new compound."
                     ),
                     html.Li(
-                        f"Near-duplicates: {ident} of {total:,} test drugs have a structurally identical "
+                        f"Near-duplicates: {ident} of {total:,} test drugs have a structurally "
+                        "identical "
                         f"twin among training drugs; without them the score is {no_ident:.2f}."
                     ),
                 ],
@@ -967,9 +967,12 @@ def evaluation_view() -> html.Section:
                     className="splits three",
                 ),
                 html.P(
-                    "The graph-only model needs a drug's existing interactions, so on unseen drugs it is "
-                    "near chance; the attribute model compares the drug's structure, class and categories "
-                    "with known binders, which works with or without interactions. Structural nearest "
+                    "The graph-only model needs a drug's existing interactions, so on unseen "
+                    "drugs it is "
+                    "near chance; the attribute model compares the drug's structure, class and "
+                    "categories "
+                    "with known binders, which works with or without interactions. Structural "
+                    "nearest "
                     "neighbour is the same structural comparison with no learning.",
                     className="why",
                 ),
@@ -981,43 +984,52 @@ def evaluation_view() -> html.Section:
                                 html.Li(
                                     [
                                         html.Strong("Unseen by the graph, not by DrugBank. "),
-                                        "A held-out drug still has its DrugBank structure, class and categories. "
-                                        "Categories and ATC codes partly encode known mechanism (see the cautious "
+                                        "A held-out drug still has its DrugBank structure, class "
+                                        "and categories. "
+                                        "Categories and ATC codes partly encode known mechanism "
+                                        "(see the cautious "
                                         "figure above).",
                                     ]
                                 ),
                                 html.Li(
                                     [
                                         html.Strong("Not by date. "),
-                                        "DrugBank has no per-interaction dates, so no split is temporal.",
+                                        "DrugBank has no per-interaction dates, so no split is "
+                                        "temporal.",
                                     ]
                                 ),
                                 html.Li(
                                     [
                                         html.Strong("Negatives are unmeasured, not disproven. "),
-                                        "They are pairs with no recorded interaction; some are real interactions "
-                                        "nobody has tested. The random split's test negatives are uniform; the "
+                                        "They are pairs with no recorded interaction; some are "
+                                        "real interactions "
+                                        "nobody has tested. The random split's test negatives are "
+                                        "uniform; the "
                                         "others use the same drug and a target of similar degree.",
                                     ]
                                 ),
                                 html.Li(
                                     [
                                         html.Strong("Balanced test sets. "),
-                                        "One negative per positive, so average precision near 0.5 is chance. Real "
-                                        "screening has far more non-interactions, and precision would be lower.",
+                                        "One negative per positive, so average precision near 0.5 "
+                                        "is chance. Real "
+                                        "screening has far more non-interactions, and precision "
+                                        "would be lower.",
                                     ]
                                 ),
                                 html.Li(
                                     [
                                         html.Strong("Scores are rankings. "),
-                                        "Calibrated on balanced validation pairs; do not read a score as the chance "
+                                        "Calibrated on balanced validation pairs; do not read a "
+                                        "score as the chance "
                                         "an interaction is real.",
                                     ]
                                 ),
                                 html.Li(
                                     [
                                         html.Strong("Intervals cover test-pair sampling only. "),
-                                        "1,000 bootstrap resamples of the test pairs; they do not cover a different "
+                                        "1,000 bootstrap resamples of the test pairs; they do not "
+                                        "cover a different "
                                         "split seed or a different DrugBank release.",
                                     ]
                                 ),
@@ -1031,8 +1043,6 @@ def evaluation_view() -> html.Section:
         )
     )
 
-
-# ----- methods view ----------------------------------------------------------
 
 ATTRIBUTE_DESCRIPTIONS = [
     (
@@ -1070,110 +1080,154 @@ def methods_view() -> html.Section:
                 html.H2("Methods"),
                 html.H3("Data"),
                 html.P(
-                    f"A DrugBank full-database export ({RESULTS['source']['file']}) is parsed into drugs, "
+                    f"A DrugBank full-database export ({RESULTS['source']['file']}) is parsed "
+                    "into drugs, "
                     f"human targets and interactions. Of {ds['drugs']:,} drug entries, "
                     f"{ds['drugs_with_human_target']:,} have at least one human target; there are "
-                    f"{ds['human_targets']:,} human targets and {ds['interactions']:,} interactions. Human "
-                    "means NCBI taxonomy 9606 on the target's polypeptide. Drug structures (SMILES), "
-                    "categories, ATC codes and ChemOnt classes, and target Pfam families, come from the "
-                    "same export. DrugBank is licensed, so no data or derived table is in the repository."
+                    f"{ds['human_targets']:,} human targets and {ds['interactions']:,} "
+                    "interactions. Human "
+                    "means NCBI taxonomy 9606 on the target's polypeptide. Drug structures "
+                    "(SMILES), "
+                    "categories, ATC codes and ChemOnt classes, and target Pfam families, come "
+                    "from the "
+                    "same export. DrugBank is licensed, so no data or derived table is in the "
+                    "repository."
                 ),
                 html.H3("Graph and embeddings"),
                 html.P(
                     "Drugs and targets form a bipartite graph: edges only join a drug to a target. "
-                    "Node2Vec (128 dimensions, 10 walks of length 40 per node, p = q = 1, window 10, "
-                    "seed 42) embeds every node that has an edge, trained only on each split's message "
+                    "Node2Vec (128 dimensions, 10 walks of length 40 per node, p = q = 1, window "
+                    "10, "
+                    "seed 42) embeds every node that has an edge, trained only on each split's "
+                    "message "
                     "graph so held-out edges cannot leak through the embeddings."
                 ),
                 html.H3("The app's model (v3): graph and attribute features"),
                 html.P(
-                    "A random forest (100 trees) scores a drug-target pair from 12 graph features (both "
-                    "degrees, preferential attachment, shortest-path length, neighbourhood size, the "
-                    "embedding dot product and each embedding's mean, plus four neighbourhood-overlap "
-                    "features that are always 0 in a bipartite graph) and 8 attribute features. Each "
-                    "attribute feature compares the drug with the drugs already known to bind the target, "
+                    "A random forest (100 trees) scores a drug-target pair from 12 graph features "
+                    "(both "
+                    "degrees, preferential attachment, shortest-path length, neighbourhood size, "
+                    "the "
+                    "embedding dot product and each embedding's mean, plus four "
+                    "neighbourhood-overlap "
+                    "features that are always 0 in a bipartite graph) and 8 attribute features. "
+                    "Each "
+                    "attribute feature compares the drug with the drugs already known to bind the "
+                    "target, "
                     "using only interactions in the training graph:"
                 ),
                 html.Ul(
                     [html.Li([html.Strong(n + ". "), d + "."]) for n, d in ATTRIBUTE_DESCRIPTIONS]
                 ),
                 html.P(
-                    "Missing values (no structure, no categories, no known binders) are coded -1. For a "
+                    "Missing values (no structure, no categories, no known binders) are coded -1. "
+                    "For a "
                     "drug with no interactions the graph features carry nothing, and the attribute "
                     "features do the work."
                 ),
                 html.H3("Ablation"),
                 html.P(
-                    "Categories and ATC codes are curated and partly assigned because a drug's targets are "
-                    "already known, so they flatter the unseen-drug result. Refitting on the whole-drug "
-                    "holdout without some features, scored on validation drugs only (the test set was not "
+                    "Categories and ATC codes are curated and partly assigned because a drug's "
+                    "targets are "
+                    "already known, so they flatter the unseen-drug result. Refitting on the "
+                    "whole-drug "
+                    "holdout without some features, scored on validation drugs only (the test set "
+                    "was not "
                     "used): "
                     + "; ".join(f"{name.lower()} {v['val_roc_auc']:.3f}" for name, v in abl.items())
                     + "."
                 ),
                 html.H3("Evaluation splits"),
                 html.P(
-                    f"Random edge split: known edges are shuffled (seed 42) and split 60/20/20 into a "
-                    f"message graph ({r['message_edges']:,} edges) that features are computed on, training "
-                    "positives and test positives; negatives are uniformly random unlinked pairs among "
+                    "Random edge split: known edges are shuffled (seed 42) and split 60/20/20 "
+                    "into a "
+                    f"message graph ({r['message_edges']:,} edges) that features are computed on, "
+                    "training "
+                    "positives and test positives; negatives are uniformly random unlinked pairs "
+                    "among "
                     "drugs and targets that have at least one interaction."
                 ),
                 html.P(
-                    "Per-drug split (controls for target popularity): 20% of drugs with two or more "
-                    "targets are test drugs and half of each one's edges are hidden; another 20% supply "
-                    "training positives the same way. Every test positive is paired with a negative for "
+                    "Per-drug split (controls for target popularity): 20% of drugs with two or "
+                    "more "
+                    "targets are test drugs and half of each one's edges are hidden; another 20% "
+                    "supply "
+                    "training positives the same way. Every test positive is paired with a "
+                    "negative for "
                     "the same drug and a target in the same message-graph degree bin."
                 ),
                 html.P(
-                    "Whole-drug holdout: 20% of drugs with a known target lose every edge and are tested; "
-                    "another 20% are made edgeless the same way for training, so training looks like "
+                    "Whole-drug holdout: 20% of drugs with a known target lose every edge and are "
+                    "tested; "
+                    "another 20% are made edgeless the same way for training, so training looks "
+                    "like "
                     "testing. Negatives as in the per-drug split."
                 ),
                 html.P(
-                    "In every split a quarter of the training drugs (or edges, for the random split) is "
-                    "held back for validation. Choices are made on validation; each test set is scored "
+                    "In every split a quarter of the training drugs (or edges, for the random "
+                    "split) is "
+                    "held back for validation. Choices are made on validation; each test set is "
+                    "scored "
                     "once."
                 ),
                 html.H3("Baselines"),
                 html.P(
                     "Structural nearest neighbour scores a pair by the drug's highest structural "
-                    "similarity to the target's known binders, with no learning. Length-3 paths counts "
-                    "drug → target′ → drug′ → target routes. Preferential attachment multiplies the two "
-                    "degrees. Chance gives every pair the same score. On the whole-drug holdout the two "
+                    "similarity to the target's known binders, with no learning. Length-3 paths "
+                    "counts "
+                    "drug → target′ → drug′ → target routes. Preferential attachment multiplies "
+                    "the two "
+                    "degrees. Chance gives every pair the same score. On the whole-drug holdout "
+                    "the two "
                     "graph baselines score every pair 0 and so equal chance."
                 ),
                 html.P(
-                    "Common neighbours is not shown. In a bipartite graph a drug and a target never share "
+                    "Common neighbours is not shown. In a bipartite graph a drug and a target "
+                    "never share "
                     "a neighbour, so it is 0 for every pair and scores exactly 0.5."
                 ),
                 html.H3("How the app scores a query"),
                 html.P(
-                    f"Two calibrated copies of the v3 model are used. Drugs with known targets, and target "
-                    f"queries, use a copy trained with the per-drug protocol (half the edges of 40% of "
+                    "Two calibrated copies of the v3 model are used. Drugs with known targets, "
+                    "and target "
+                    "queries, use a copy trained with the per-drug protocol (half the edges of "
+                    "40% of "
                     f"drugs hidden, no drug losing its last edge; validation ROC AUC "
-                    f"{copies['seen']['validation']['roc_auc']:.3f}). Drugs with no known targets use a "
-                    f"copy trained with the whole-drug protocol (every edge of 25% of drugs hidden; "
-                    f"validation ROC AUC {copies['cold']['validation']['roc_auc']:.3f}). A single copy "
-                    "would have to hide some drugs' edges entirely to learn the unseen-drug case, and "
+                    f"{copies['seen']['validation']['roc_auc']:.3f}). Drugs with no known targets "
+                    "use a "
+                    "copy trained with the whole-drug protocol (every edge of 25% of drugs "
+                    "hidden; "
+                    f"validation ROC AUC {copies['cold']['validation']['roc_auc']:.3f}). A single "
+                    "copy "
+                    "would have to hide some drugs' edges entirely to learn the unseen-drug case, "
+                    "and "
                     "those drugs would then look edgeless when the app scored them. Each copy is "
                     "calibrated with isotonic regression on its validation pairs."
                 ),
                 html.P(threshold_paragraph(sug)),
                 html.P(
-                    "The one-line support under each suggestion is read from the data, not from the model, "
-                    "in this order: structural similarity of at least 0.5 to a known binder of the target; "
-                    "drugs that bind the target and share a target with the selected drug; similarity of "
-                    "at least 0.5 to a binder of a target in the same protein family; known binders in the "
-                    "same chemical class. Drug entries that are not small molecules are left out of the "
+                    "The one-line support under each suggestion is read from the data, not from "
+                    "the model, "
+                    "in this order: structural similarity of at least 0.5 to a known binder of "
+                    "the target; "
+                    "drugs that bind the target and share a target with the selected drug; "
+                    "similarity of "
+                    "at least 0.5 to a binder of a target in the same protein family; known "
+                    "binders in the "
+                    "same chemical class. Drug entries that are not small molecules are left out "
+                    "of the "
                     "graph by default and kept in the table."
                 ),
                 html.H3("The v2 graph-only model"),
                 html.P(
                     "v2 is the same random forest on the 12 graph features only. It is kept and "
-                    "reproducible with python train_ml_models.py, which writes results/results.json. Its "
-                    "training negatives were chosen on per-drug validation: degree-matched pairs scored "
+                    "reproducible with python train_ml_models.py, which writes "
+                    "results/results.json. Its "
+                    "training negatives were chosen on per-drug validation: degree-matched pairs "
+                    "scored "
                     f"ROC AUC {v2_val['degree_matched']['roc_auc']:.3f} against "
-                    f"{v2_val['uniform']['roc_auc']:.3f} for uniform random pairs, which reward preferring "
+                    f"{v2_val['uniform']['roc_auc']:.3f} for uniform random pairs, which reward "
+                    "preferring "
                     "popular targets. v3 uses the same degree-matched negatives."
                 ),
                 html.H3("What the first version got wrong"),
@@ -1182,44 +1236,53 @@ def methods_view() -> html.Section:
                         html.Li(
                             [
                                 html.Strong("Leakage. "),
-                                "Training positives were described by a graph that still contained the edge "
-                                "being predicted, and Node2Vec was trained on the full graph, test edges "
+                                "Training positives were described by a graph that still "
+                                "contained the edge "
+                                "being predicted, and Node2Vec was trained on the full graph, "
+                                "test edges "
                                 "included.",
                             ]
                         ),
                         html.Li(
                             [
                                 html.Strong("Easy negatives. "),
-                                "Negatives were drawn from every DrugBank drug, most of which have no human "
+                                "Negatives were drawn from every DrugBank drug, most of which "
+                                "have no human "
                                 "target, so degree alone told them apart from real interactions.",
                             ]
                         ),
                         html.Li(
                             [
                                 html.Strong("Padded baselines. "),
-                                "Common neighbours, Jaccard and Adamic-Adar were always 0, so the code replaced "
-                                "them with small random numbers and reported the resulting ~0.50 as a baseline.",
+                                "Common neighbours, Jaccard and Adamic-Adar were always 0, so the "
+                                "code replaced "
+                                "them with small random numbers and reported the resulting ~0.50 "
+                                "as a baseline.",
                             ]
                         ),
                         html.Li(
                             [
                                 html.Strong("Placeholder embeddings. "),
-                                "When no embeddings loaded, similarity results were computed from random "
+                                "When no embeddings loaded, similarity results were computed from "
+                                "random "
                                 "vectors and shown as real.",
                             ]
                         ),
                         html.Li(
                             [
                                 html.Strong("A species filter that matched nothing. "),
-                                'Targets were kept only if labelled "Homo sapiens"; this DrugBank release says '
+                                'Targets were kept only if labelled "Homo sapiens"; '
+                                "this DrugBank release says "
                                 '"Humans", so the filter dropped every interaction.',
                             ]
                         ),
                         html.Li(
                             [
                                 html.Strong("Labels. "),
-                                'The interface showed a hard-coded "ROC AUC: 1.0000" and called a random split '
-                                "temporal. An earlier figure of 0.93 ROC AUC could not be reproduced.",
+                                'The interface showed a hard-coded "ROC AUC: 1.0000" '
+                                "and called a random split "
+                                "temporal. An earlier figure of 0.93 ROC AUC could not be "
+                                "reproduced.",
                             ]
                         ),
                     ]
@@ -1266,8 +1329,6 @@ def threshold_paragraph(sug: dict[str, Any]) -> str:
         "same two decimals are marked with '=' because the model cannot order them."
     )
 
-
-# ----- app -------------------------------------------------------------------
 
 app = dash.Dash(
     __name__,

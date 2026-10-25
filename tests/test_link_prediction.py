@@ -62,7 +62,6 @@ def test_train_and_baselines() -> None:
     assert 0 <= perf["auc"] <= 1
     lo, hi = perf["roc_auc_ci95"]
     assert lo <= perf["auc"] <= hi
-    # Ties for every pair: chance and common neighbours score exactly 0.5.
     assert base["chance"]["roc_auc"] == 0.5
     assert base["common_neighbors"]["roc_auc"] == 0.5
 

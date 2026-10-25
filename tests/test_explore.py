@@ -120,7 +120,6 @@ def test_attribute_evidence_lines() -> None:
             text = evidence(G, d, t, attr=p)
             assert text.endswith(".")
             seen.add(text.split(" ")[0])
-            # target-centred wording names the target rather than "it"
             assert "binds it" not in evidence(G, t, d, attr=p)
     assert "Structurally" in seen
 

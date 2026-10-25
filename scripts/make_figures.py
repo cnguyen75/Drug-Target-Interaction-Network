@@ -60,7 +60,8 @@ def evaluation_svg(results: dict[str, Any]) -> str:
         f'<desc id="d">Dots are ROC AUC on held-out pairs; lines are 95% bootstrap intervals. '
         f"Source: results.json, commit {escape(results['git_commit'])}.</desc>",
         f'<rect width="{W}" height="{H}" fill="{CARD}"/>',
-        f'<text x="24" y="34" font-size="20" font-weight="700" fill="{INK}">How well does the model '
+        f'<text x="24" y="34" font-size="20" font-weight="700" fill="{INK}">'
+        "How well does the model "
         f"rank held-out interactions?</text>",
         f'<text x="24" y="56" font-size="14" fill="{SECONDARY}">ROC AUC on held-out pairs (1 known '
         f"interaction : 1 sampled non-interaction). Lines: 95% bootstrap interval.</text>",
@@ -134,7 +135,8 @@ def readme_block(results: dict[str, Any]) -> str:
     ds = v2["dataset"]
     lines += [
         f"DrugBank {v2['source']['version']} (exported {v2['source']['exported_on']}): "
-        f"{ds['drugs_with_human_target']:,} drugs with a human target, {ds['human_targets']:,} human "
+        f"{ds['drugs_with_human_target']:,} drugs with a human target, {ds['human_targets']:,} "
+        "human "
         f"targets, {ds['interactions']:,} interactions. Run {results.get('run_date', '')}, commit "
         f"`{results['git_commit']}`, seed {results['seed']}.",
         "",
@@ -179,7 +181,8 @@ def readme_block(results: dict[str, Any]) -> str:
         "",
         "Produced by `python src/datasources/drugbank_loader.py`, "
         "`python src/datasources/drugbank_attributes.py`, `python train_attribute_model.py`, "
-        "`python scripts/analyze_cold_holdout.py`, `python scripts/ablate_attributes_validation.py` "
+        "`python scripts/analyze_cold_holdout.py`, `python "
+        "scripts/ablate_attributes_validation.py` "
         "and `python predict_links.py`; the v2 graph-only model by `python train_ml_models.py`; "
         "table and figure by `python scripts/make_figures.py`.",
         END,

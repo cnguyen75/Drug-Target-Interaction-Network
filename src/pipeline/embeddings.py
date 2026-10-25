@@ -12,7 +12,6 @@ import numpy as np
 import pandas as pd
 
 
-# Add src to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from config import EMB_ALL_FP, G_BIP_FP
 
@@ -72,7 +71,6 @@ def train_embeddings(
         walks: Number of walks per node
         seed: Random seed for reproducibility
     """
-    # Use provided paths or default to config paths
     g_bip_fp = g_bip_fp or G_BIP_FP
     emb_fp = emb_fp or EMB_ALL_FP
 
@@ -82,25 +80,20 @@ def train_embeddings(
 
     print(f"Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
 
-    # Set random seed
     np.random.seed(seed)
 
-    # Train Node2Vec
     print(
         f"Training Node2Vec embeddings (dims={dims}, epochs={epochs}, "
         f"walklen={walklen}, walks={walks})"
     )
     start_time = time.time()
 
-    # Create Node2Vec model
     g2v = Node2Vec(
         G, dimensions=dims, walk_length=walklen, num_walks=walks, workers=1, p=1, q=1, seed=seed
     )
 
-    # Fit the model
     model = g2v.fit(window=10, min_count=1, batch_words=4)
 
-    # Get embeddings for all nodes
     node_ids = list(G.nodes())
     embeddings = np.zeros((len(node_ids), dims))
 
@@ -111,7 +104,6 @@ def train_embeddings(
     elapsed_time = time.time() - start_time
     print(f"Training completed in {elapsed_time:.1f} seconds")
 
-    # Create DataFrame with embeddings
     node_ids = list(G.nodes())
     embedding_data = []
 
@@ -126,11 +118,9 @@ def train_embeddings(
     print(f"Embeddings shape: {embeddings.shape}")
     print(f"Embeddings DataFrame: {len(embeddings_df)} rows, {len(embeddings_df.columns)} columns")
 
-    # Save embeddings
     embeddings_df.to_parquet(emb_fp, index=False)
     print(f"Saved embeddings to {emb_fp}")
 
-    # Print some statistics
     print("\nEmbedding Statistics:")
     print(f"  Mean: {embeddings.mean():.4f}")
     print(f"  Std: {embeddings.std():.4f}")
