@@ -26,16 +26,17 @@ def build_bipartite_graph(
     """
     G = nx.Graph()
     G.add_nodes_from(
-        (d, {"node_type": "drug", "name": n}) for d, n in zip(drugs_df["drug_id"], drugs_df["name"])
+        (d, {"node_type": "drug", "name": n})
+        for d, n in zip(drugs_df["drug_id"], drugs_df["name"], strict=False)
     )
     G.add_nodes_from(
         (t, {"node_type": "target", "name": n})
-        for t, n in zip(targets_df["target_id"], targets_df["name"])
+        for t, n in zip(targets_df["target_id"], targets_df["name"], strict=False)
     )
     drugs, targets = set(drugs_df["drug_id"]), set(targets_df["target_id"])
     G.add_edges_from(
         (d, t)
-        for d, t in zip(dti_df["drug_id"], dti_df["target_id"])
+        for d, t in zip(dti_df["drug_id"], dti_df["target_id"], strict=False)
         if d in drugs and t in targets
     )
     if connected_only:

@@ -342,7 +342,9 @@ class DTILinkPredictor:
         pairs = set()
         while len(pairs) < n:
             for i, j in zip(
-                self.rng.integers(len(drugs), size=n), self.rng.integers(len(targets), size=n)
+                self.rng.integers(len(drugs), size=n),
+                self.rng.integers(len(targets), size=n),
+                strict=False,
             ):
                 pair = (drugs[i], targets[j])
                 if pair in pairs or pair in exclude or self.G.has_edge(*pair):
@@ -556,7 +558,9 @@ class DTILinkPredictor:
                     "fraction_of_positives": frac_pos,
                     "mean_predicted_value": mean_pred,
                 },
-                "feature_importances": dict(zip(FEATURE_NAMES, self.model.feature_importances_)),
+                "feature_importances": dict(
+                    zip(FEATURE_NAMES, self.model.feature_importances_, strict=False)
+                ),
                 "test_pairs": pairs,
                 "test_labels": y_test,
                 "test_scores": proba,
@@ -631,7 +635,7 @@ class DTILinkPredictor:
             return {}
         X = self._candidate_matrix(node, candidates)
         scores = self._calibrated(self.model.predict_proba(self.scaler.transform(X))[:, 1])
-        return dict(zip(candidates, scores))
+        return dict(zip(candidates, scores, strict=False))
 
     def _candidate_matrix(self, node: str, candidates: list[str]) -> np.ndarray:
         """Feature rows for (node, candidate) pairs, in extract_features_safe's column order."""

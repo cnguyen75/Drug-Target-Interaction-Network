@@ -61,6 +61,12 @@ ignore = ["ANN401", "TRY003", "E501"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["PLR2004", "ANN", "ARG"]
 "test_*.py" = ["PLR2004", "ANN", "ARG"]
+# Pipeline steps run as commands; stdout is their progress output.
+"scripts/**" = ["T20"]
+"predict_links.py" = ["T20"]
+"train_*.py" = ["T20"]
+"src/datasources/**" = ["T20"]
+"src/pipeline/embeddings.py" = ["T20"]
 
 [tool.ruff.lint.pylint]
 max-args = 4
@@ -83,4 +89,3 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
-

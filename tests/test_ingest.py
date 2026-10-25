@@ -134,7 +134,7 @@ class TestDrugBankIngest:
 
         drugs_df, _, _ = parse_drugbank_xml(xml_path)
 
-        types = dict(zip(drugs_df["drug_id"], drugs_df["type"]))
+        types = dict(zip(drugs_df["drug_id"], drugs_df["type"], strict=False))
         assert types["DB00001"] == "small molecule"
         assert types["DB00002"] == "biotech"
 

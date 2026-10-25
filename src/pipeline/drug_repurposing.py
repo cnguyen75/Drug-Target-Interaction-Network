@@ -60,14 +60,14 @@ class DrugRepurposer:
         if drug_id not in self.drugs_df["drug_id"].values:
             return []
 
-        drug_info = self.drugs_df[self.drugs_df["drug_id"] == drug_id].iloc[0]
+        _drug_info = self.drugs_df[self.drugs_df["drug_id"] == drug_id].iloc[0]
 
         if self.drug_embeddings is not None and drug_id in self.drug_embeddings.index:
             drug_embedding = self.drug_embeddings.loc[drug_id].values.reshape(1, -1)
 
             similarities = cosine_similarity(drug_embedding, self.drug_embeddings.values)[0]
 
-            similarity_pairs = list(zip(self.drug_embeddings.index, similarities))
+            similarity_pairs = list(zip(self.drug_embeddings.index, similarities, strict=False))
 
             similar_drugs = []
             for similar_drug_id, similarity in similarity_pairs:
@@ -121,7 +121,7 @@ class DrugRepurposer:
         if drug_id not in self.drugs_df["drug_id"].values:
             return []
 
-        drug_info = self.drugs_df[self.drugs_df["drug_id"] == drug_id].iloc[0]
+        _drug_info = self.drugs_df[self.drugs_df["drug_id"] == drug_id].iloc[0]
         current_targets = set(self.dti_df[self.dti_df["drug_id"] == drug_id]["target_id"])
 
         opportunities = []

@@ -83,21 +83,22 @@ class AttributeLinkPredictor(DTILinkPredictor):
         super().load_data(drugs_df, targets_df, dti_df, embeddings_df)
         gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
         self.fps = {}
-        for d, smi in zip(drugs_df["drug_id"], drugs_df["smiles"]):
+        for d, smi in zip(drugs_df["drug_id"], drugs_df["smiles"], strict=False):
             mol = Chem.MolFromSmiles(smi) if isinstance(smi, str) and smi else None
             if mol is not None:
                 self.fps[d] = gen.GetFingerprint(mol)
-        atc = dict(zip(drugs_df["drug_id"], drugs_df["atc_codes"]))
+        atc = dict(zip(drugs_df["drug_id"], drugs_df["atc_codes"], strict=False))
         self.atc4 = {
             d: frozenset(c[:5] for c in (v if isinstance(v, str) else "").split(",") if len(c) >= 5)
             for d, v in atc.items()
         }
         da = self.drug_attrs
-        self.categories = {d: _split(c) for d, c in zip(da.index, da["categories"])}
-        self.chem_class = dict(zip(da.index, da["class"]))
-        self.chem_superclass = dict(zip(da.index, da["superclass"]))
+        self.categories = {d: _split(c) for d, c in zip(da.index, da["categories"], strict=False)}
+        self.chem_class = dict(zip(da.index, da["class"], strict=False))
+        self.chem_superclass = dict(zip(da.index, da["superclass"], strict=False))
         self.pfams = {
-            t: _split(p) for t, p in zip(self.target_attrs.index, self.target_attrs["pfams"])
+            t: _split(p)
+            for t, p in zip(self.target_attrs.index, self.target_attrs["pfams"], strict=False)
         }
         self.pfam_targets = {}
         for t, fams in self.pfams.items():
@@ -205,11 +206,14 @@ class AttributeLinkPredictor(DTILinkPredictor):
         sims = self._sims(d, binders)
         fam = self._sims(d, [b for b in self._family_binders(t) if b != d])
         cls, sup = self.chem_class.get(d, ""), self.chem_superclass.get(d, "")
-        share = lambda attr, val: (
-            -1.0
-            if not val or not binders
-            else float(np.mean([attr.get(b, "") == val for b in binders]))
-        )
+
+        def share(attr: str, val: str | None) -> float:
+            return (
+                -1.0
+                if not val or not binders
+                else float(np.mean([attr.get(b, "") == val for b in binders]))
+            )
+
         return np.array(
             [
                 sims.max() if sims.size else -1.0,
@@ -234,7 +238,7 @@ class AttributeLinkPredictor(DTILinkPredictor):
     def evaluate_test(self) -> dict[str, Any]:
         perf = super().evaluate_test()
         self.evaluation_results["feature_importances"] = dict(
-            zip(FEATURE_NAMES + ATTRIBUTE_FEATURES, self.model.feature_importances_)
+            zip(FEATURE_NAMES + ATTRIBUTE_FEATURES, self.model.feature_importances_, strict=False)
         )
         return perf
 

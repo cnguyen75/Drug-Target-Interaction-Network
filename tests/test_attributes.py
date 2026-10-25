@@ -35,7 +35,7 @@ def _tables() -> tuple[tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], pd.DataF
     target_attrs = pd.DataFrame(
         {
             "target_id": targets["target_id"],
-            "pfams": ["PF%05d" % (i % 6) for i in range(len(targets))],
+            "pfams": [f"PF{i % 6:05d}" for i in range(len(targets))],
         }
     )
     return (drugs, targets, dti), drug_attrs, target_attrs
@@ -51,7 +51,7 @@ def test_cold_drug_split_removes_every_edge_of_test_and_train_drugs() -> None:
     assert not set(p.test_drugs) & set(p.train_drugs)
     assert {d for d, _ in p.val_edges} == p.val_drugs
     negs = p.sample_negatives(p.test_edges)
-    assert all(d == nd for (d, _), (nd, _) in zip(p.test_edges, negs))
+    assert all(d == nd for (d, _), (nd, _) in zip(p.test_edges, negs, strict=False))
 
 
 def test_attribute_model_same_split_and_negatives_as_graph_model() -> None:
@@ -73,7 +73,7 @@ def test_attribute_features_use_message_graph_only() -> None:
     p.load_data(*tables)
     p.split_edges("cold_drug")
     d, t = p.test_edges[0]
-    f = dict(zip(ATTRIBUTE_FEATURES, p.attribute_features(d, t)))
+    f = dict(zip(ATTRIBUTE_FEATURES, p.attribute_features(d, t), strict=False))
     assert d not in p._binders(t)  # its own (hidden) edge is not a binder
     assert -1.0 <= f["fp_max_binders"] <= 1.0
     binders = p._binders(t)

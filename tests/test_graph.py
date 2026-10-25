@@ -46,4 +46,4 @@ def test_most_connected_no_duplicates_and_ranked() -> None:
     assert top["drug_id"].is_unique
     assert list(top["connections"]) == sorted(top["connections"], reverse=True)
     expected = dti.drop_duplicates()["drug_id"].value_counts()
-    assert all(expected[d] == c for d, c in zip(top["drug_id"], top["connections"]))
+    assert all(expected[d] == c for d, c in zip(top["drug_id"], top["connections"], strict=False))

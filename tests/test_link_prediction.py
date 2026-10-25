@@ -38,7 +38,7 @@ def test_degree_matched_negatives_same_drug_and_not_edges() -> None:
     p = _predictor("drug_holdout")
     negs = p.sample_negatives(p.test_edges)
     assert len(negs) == len(p.test_edges) == len(set(negs))
-    for (d, t), (nd, nt) in zip(p.test_edges, negs):
+    for (d, _t), (nd, nt) in zip(p.test_edges, negs, strict=False):
         assert d == nd and not p.G.has_edge(nd, nt)
 
 
@@ -112,7 +112,7 @@ def test_validation_does_not_change_message_graph_or_test() -> None:
 def test_degree_matched_training_negatives_and_calibration() -> None:
     p = _predictor("drug_holdout", train_negatives="degree_matched")
     p.fit()
-    assert all(fd == pd for (pd, _), (fd, _) in zip(p.fit_edges, p.fit_neg))
+    assert all(fd == pd for (pd, _), (fd, _) in zip(p.fit_edges, p.fit_neg, strict=False))
     p.validate()
     p.calibrate("isotonic")
     s = p.score_pairs(p.val_edges[:5])
@@ -126,11 +126,14 @@ def test_degree_matched_negatives_match_message_graph_degree() -> None:
     """Negatives must not differ from positives in the degree the model sees."""
     p = _predictor("drug_holdout")
     negs = p.sample_negatives(p.test_edges)
-    for (_, t), (_, nt) in zip(p.test_edges, negs):
+    for (_, t), (_, nt) in zip(p.test_edges, negs, strict=False):
         assert (
             p._degree_bin(t) == p._degree_bin(nt) or abs(p._degree_bin(t) - p._degree_bin(nt)) == 1
         )
-    same = sum(p._degree_bin(t) == p._degree_bin(nt) for (_, t), (_, nt) in zip(p.test_edges, negs))
+    same = sum(
+        p._degree_bin(t) == p._degree_bin(nt)
+        for (_, t), (_, nt) in zip(p.test_edges, negs, strict=False)
+    )
     assert same / len(negs) > 0.9
     isolated_pos = sum(p.train_graph.degree(t) == 0 for _, t in p.test_edges)
     isolated_neg = sum(p.train_graph.degree(t) == 0 for _, t in negs)

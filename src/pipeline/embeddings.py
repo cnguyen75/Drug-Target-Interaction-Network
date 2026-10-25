@@ -46,10 +46,9 @@ def embed_graph(
     model = g2v.fit(window=10, min_count=1, batch_words=4, seed=seed, workers=1)
     node_ids = list(G.nodes())
     vectors = np.vstack([model.wv[str(n)] for n in node_ids])
-    df = pd.DataFrame(
+    return pd.DataFrame(
         vectors, index=pd.Index(node_ids, name="node_id"), columns=[f"e{j}" for j in range(dims)]
     )
-    return df
 
 
 def train_embeddings(

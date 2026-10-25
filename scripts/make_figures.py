@@ -26,7 +26,7 @@ SPLITS = {
 X0, X1 = 0.4, 1.0  # ROC AUC axis range
 
 
-def rows(split: dict[str, Any], app: Any = None) -> list[tuple[str, dict[str, Any], str, bool]]:
+def rows(split: dict[str, Any]) -> list[tuple[str, dict[str, Any], str, bool]]:
     out = [
         ("Attribute model (v3, the app)", split["attribute_model"], BLUE, True),
         ("Graph-only model (v2)", split["graph_model"], PURPLE, True),
@@ -42,11 +42,10 @@ def rows(split: dict[str, Any], app: Any = None) -> list[tuple[str, dict[str, An
 
 
 def evaluation_svg(results: dict[str, Any]) -> str:
-    app = None
-    W, label_w, plot_w, value_w = 920, 330, 440, 130
+    W, label_w, plot_w = 920, 330, 440
     row_h, panel_gap, top = 30, 46, 74
     panels = list(SPLITS)
-    n_rows = len(rows(results["splits"][panels[0]], app))
+    n_rows = len(rows(results["splits"][panels[0]]))
     panel_h = 34 + n_rows * row_h
     H = top + len(panels) * panel_h + (len(panels) - 1) * panel_gap + 64
 
@@ -80,7 +79,7 @@ def evaluation_svg(results: dict[str, Any]) -> str:
                 f'<line x1="{x(tick):.1f}" x2="{x(tick):.1f}" y1="{y0 - 6}" '
                 f'y2="{y0 + n_rows * row_h - 6}" stroke="{RULE}" stroke-width="1"{dash}/>'
             )
-        for i, (name, b, color, model) in enumerate(rows(split, app)):
+        for i, (name, b, color, model) in enumerate(rows(split)):
             cy = y0 + i * row_h + 8
             lo, hi = b["roc_auc_ci95"]
             weight = "600" if model else "400"

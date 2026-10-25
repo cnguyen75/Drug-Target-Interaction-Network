@@ -110,7 +110,7 @@ def main() -> None:
     }
     G = copies["seen"].G
     drugs = copies["seen"].drugs_df[featured_mask(copies["seen"].drugs_df)]
-    by_name = dict(zip(drugs["name"], drugs["drug_id"]))
+    by_name = dict(zip(drugs["name"], drugs["drug_id"], strict=False))
     genes = copies["seen"].targets_df.set_index("target_id")["gene_symbol"].to_dict()
 
     def label(n: str) -> str:

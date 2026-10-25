@@ -220,7 +220,7 @@ def neighbourhood(
     `keep(n)` can hide nodes (for example non-small-molecule drug entries);
     hidden known partners are counted in known_hidden.
     """
-    keep = keep or (lambda n: True)
+    keep = keep or (lambda _n: True)
     all_known = sorted(G.neighbors(node), key=lambda n: (-G.degree(n), n))
     known = [k for k in all_known if keep(k)]
     known_shown = known[:max_known]
@@ -278,7 +278,9 @@ def radial_layout(nb: dict[str, Any]) -> dict[str, tuple[float, float]]:
         return [lo + (hi - lo) * i / (n - 1) for i in range(n)]
 
     predicted = [p for p, _ in nb["predicted"]]
-    for p, a in zip(predicted, spread(len(predicted), math.radians(55), math.radians(-55))):
+    for p, a in zip(
+        predicted, spread(len(predicted), math.radians(55), math.radians(-55)), strict=False
+    ):
         pos[p] = (2.25 * math.cos(a), 2.25 * math.sin(a))
 
     def mean_angle(o: str) -> float:
@@ -289,7 +291,9 @@ def radial_layout(nb: dict[str, Any]) -> dict[str, tuple[float, float]]:
         return a % (2 * math.pi)
 
     related = sorted(nb["related"], key=lambda o: (mean_angle(o), o))
-    for o, a in zip(related, spread(len(related), math.radians(105), math.radians(255))):
+    for o, a in zip(
+        related, spread(len(related), math.radians(105), math.radians(255)), strict=False
+    ):
         pos[o] = (2.4 * math.cos(a), 2.4 * math.sin(a))
     return pos
 
