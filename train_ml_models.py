@@ -26,6 +26,7 @@ import platform
 import subprocess
 import sys
 import time
+from typing import Any
 
 
 if os.environ.get("PYTHONHASHSEED") != "0":
@@ -50,17 +51,17 @@ COMMAND = "python train_ml_models.py"
 DATA_COMMAND = "python src/datasources/drugbank_loader.py"
 
 
-def source_meta():
+def source_meta() -> dict[str, str]:
     """DrugBank file name, version and export date recorded by the loader."""
     fp = DRUGS_FP.parent / "drugbank_meta.json"
     return json.loads(fp.read_text()) if fp.exists() else {"file": RAW_XML.name}
 
 
-def r4(x):
+def r4(x: float) -> float:
     return round(float(x), 4)
 
 
-def metric_block(m):
+def metric_block(m: dict[str, Any]) -> dict[str, Any]:
     return {
         "roc_auc": r4(m["roc_auc"]),
         "roc_auc_ci95": [r4(v) for v in m["roc_auc_ci95"]],
@@ -76,7 +77,9 @@ NEGATIVE_LABELS = {
 }
 
 
-def fit_variants(kind, tables):
+def fit_variants(
+    kind: str, tables: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]
+) -> dict[str, DTILinkPredictor]:
     """Fit one model per training-negative scheme on the same split and embeddings."""
     t0 = time.time()
     variants, emb = {}, None
@@ -95,7 +98,7 @@ def fit_variants(kind, tables):
     return variants
 
 
-def select_scheme(variants):
+def select_scheme(variants: dict[str, DTILinkPredictor]) -> tuple[str, dict[str, dict[str, Any]]]:
     """Pick the training-negative scheme on per-drug validation (ROC AUC, then AP)."""
     val = {s: p.evaluation_results["model_performance"] for s, p in variants.items()}
     best = max(val, key=lambda s: (round(val[s]["val_auc"], 4), round(val[s]["val_ap_score"], 4)))
@@ -110,7 +113,7 @@ def select_scheme(variants):
     }
 
 
-def model_block(p):
+def model_block(p: DTILinkPredictor) -> dict[str, Any]:
     mp = p.evaluation_results["model_performance"]
     return {
         **metric_block(
@@ -130,7 +133,7 @@ def model_block(p):
     }
 
 
-def split_summary(variants):
+def split_summary(variants: dict[str, DTILinkPredictor]) -> dict[str, Any]:
     ref = variants["uniform"]
     ev, mp = ref.evaluation_results, ref.evaluation_results["model_performance"]
     counts = {
@@ -164,7 +167,7 @@ def split_summary(variants):
     }
 
 
-def main():
+def main() -> None:
     for fp in (DRUGS_FP, TARGETS_FP, DTI_FP):
         if not fp.exists():
             sys.exit(f"Missing {fp}. Run: {DATA_COMMAND}")

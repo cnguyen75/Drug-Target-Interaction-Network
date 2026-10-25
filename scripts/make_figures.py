@@ -11,6 +11,7 @@ model), baselines in #8A8171; Archivo for text. Direct labels, no legend.
 
 import json
 from pathlib import Path
+from typing import Any
 from xml.sax.saxutils import escape
 
 
@@ -25,7 +26,7 @@ SPLITS = {
 X0, X1 = 0.4, 1.0  # ROC AUC axis range
 
 
-def rows(split, app=None):
+def rows(split: dict[str, Any], app: Any = None) -> list[tuple[str, dict[str, Any], str, bool]]:
     out = [
         ("Attribute model (v3, the app)", split["attribute_model"], BLUE, True),
         ("Graph-only model (v2)", split["graph_model"], PURPLE, True),
@@ -40,7 +41,7 @@ def rows(split, app=None):
     return out
 
 
-def evaluation_svg(results):
+def evaluation_svg(results: dict[str, Any]) -> str:
     app = None
     W, label_w, plot_w, value_w = 920, 330, 440, 130
     row_h, panel_gap, top = 30, 46, 74
@@ -49,7 +50,7 @@ def evaluation_svg(results):
     panel_h = 34 + n_rows * row_h
     H = top + len(panels) * panel_h + (len(panels) - 1) * panel_gap + 64
 
-    def x(v):
+    def x(v: float) -> float:
         return label_w + (v - X0) / (X1 - X0) * plot_w
 
     p = [
@@ -115,7 +116,7 @@ def evaluation_svg(results):
 START, END = "<!-- results:start -->", "<!-- results:end -->"
 
 
-def readme_block(results):
+def readme_block(results: dict[str, Any]) -> str:
     """Markdown results, every number read from the results files."""
     v2 = json.loads((ROOT / "results" / "results.json").read_text())
     abl = json.loads((ROOT / "results" / "results_attribute_ablation.json").read_text())
@@ -124,7 +125,7 @@ def readme_block(results):
         for r in json.loads((ROOT / "results" / "results_cold_similarity.json").read_text())["rows"]
     }
 
-    def cell(b):
+    def cell(b: dict[str, Any]) -> str:
         lo, hi = b["roc_auc_ci95"]
         return f"{b['roc_auc']:.3f} ({lo:.3f}–{hi:.3f})"
 
@@ -186,7 +187,7 @@ def readme_block(results):
     return "\n".join(lines)
 
 
-def update_readme(results):
+def update_readme(results: dict[str, Any]) -> bool:
     fp = ROOT / "README.md"
     text = fp.read_text()
     if START not in text:
@@ -197,7 +198,7 @@ def update_readme(results):
     return True
 
 
-def main():
+def main() -> None:
     results = json.loads((ROOT / "results" / "results_attributes.json").read_text())
     out = ROOT / "figures"
     out.mkdir(exist_ok=True)

@@ -53,7 +53,7 @@ VARIANTS = {
 }
 
 
-def main():
+def main() -> None:
     tables = (pd.read_parquet(DRUGS_FP), pd.read_parquet(TARGETS_FP), pd.read_parquet(DTI_FP))
     p = AttributeLinkPredictor(
         pd.read_parquet(DRUG_ATTR_FP), pd.read_parquet(TARGET_ATTR_FP), seed=SEED

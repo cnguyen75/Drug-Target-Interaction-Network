@@ -6,14 +6,18 @@ Every number shown comes from results/results.json, the parsed DrugBank tables
 or the trained model; nothing is typed in.
 """
 
+from collections.abc import Sequence
 import json
 import os
 from pathlib import Path
 import sys
+from typing import Any
 from urllib.parse import parse_qs, urlencode
 
 import dash
 from dash import Input, Output, State, dcc, html
+from dash.development.base_component import Component
+import networkx as nx
 import pandas as pd
 import plotly.graph_objects as go
 
@@ -70,7 +74,14 @@ ATTRIBUTION = (
 # ----- data ------------------------------------------------------------------
 
 
-def load():
+def load() -> tuple[
+    pd.DataFrame,
+    pd.DataFrame,
+    nx.Graph,
+    dict[str, DTILinkPredictor],
+    dict[str, dict[str, Any]],
+    pd.DataFrame | None,
+]:
     paths = (
         DRUGS_FP,
         TARGETS_FP,
@@ -116,16 +127,16 @@ THRESHOLDS = {
 PHONE_WIDTH = 640
 
 
-def small_molecule_or_target(n):
+def small_molecule_or_target(n: str) -> bool:
     """Default graph filter: hide drug entries that are not small molecules."""
     return not is_drug(n) or n in SMALL_MOLECULES
 
 
-def is_drug(n):
+def is_drug(n: str) -> bool:
     return G.nodes[n]["node_type"] == "drug"
 
 
-def label(n):
+def label(n: str) -> str:
     """Short label: drug name, or the target's gene symbol (full name in details)."""
     if is_drug(n):
         return G.nodes[n]["name"] or n
@@ -133,12 +144,12 @@ def label(n):
     return gene or G.nodes[n]["name"] or n
 
 
-def scorable_without_targets(n):
+def scorable_without_targets(n: str) -> bool:
     """A drug with no known targets can still be scored if it has a structure."""
     return n in COPIES["cold"].fps
 
 
-def search_options():
+def search_options() -> list[dict[str, str]]:
     opts = []
     for n, d in G.nodes(data=True):
         if G.degree(n) == 0 and not (d["node_type"] == "drug" and scorable_without_targets(n)):
@@ -159,7 +170,7 @@ OPTION_BY_VALUE = {o["value"]: o for o in SEARCH_OPTIONS}
 MAX_MATCHES = 30
 
 
-def match_options(query, current=None):
+def match_options(query: str | None, current: str | None = None) -> list[dict[str, str]]:
     """Up to MAX_MATCHES options for a search, prefix matches first; always keeps `current`."""
     q = (query or "").strip().lower()
     out = []
@@ -178,12 +189,12 @@ DEFAULT_NODE = next(
 )
 
 
-def copy_for(node):
+def copy_for(node: str) -> str:
     """'cold' for a drug with no known targets, else 'seen' (see methods)."""
     return "cold" if is_drug(node) and G.degree(node) == 0 else "seen"
 
 
-def suggestions(node):
+def suggestions(node: str) -> dict[str, float]:
     """Scores for unlinked partners. A target's suggestions are featured drugs with known targets."""
     model = COPIES[copy_for(node)]
     if is_drug(node):
@@ -195,15 +206,15 @@ def suggestions(node):
 # ----- small components ------------------------------------------------------
 
 
-def mono(text=None, className="mono", **kw):
+def mono(text: str | None = None, className: str = "mono", **kw: Any) -> html.Span:
     return html.Span(text, className=className, **kw)
 
 
-def fmt_int(n):
+def fmt_int(n: int) -> str:
     return f"{n:,}"
 
 
-def header():
+def header() -> html.Div:
     ds = RESULTS["dataset"]
     return html.Div(
         [
@@ -266,7 +277,7 @@ VIEWS = [
 ]
 
 
-def nav(pathname):
+def nav(pathname: str) -> list[Component]:
     # The current view is a plain anchor so it can carry aria-current; dcc.Link cannot.
     return [
         html.A(name, href=href, className="nav-link active", **{"aria-current": "page"})
@@ -279,11 +290,11 @@ def nav(pathname):
 # ----- explore view ----------------------------------------------------------
 
 
-def key_item(svg, text):
+def key_item(svg: Component, text: str) -> html.Div:
     return html.Div([svg, html.Span(text)], className="key-item")
 
 
-def explore_view(node):
+def explore_view(node: str) -> html.Section:
     return html.Section(
         [
             html.Aside(
@@ -403,13 +414,13 @@ def explore_view(node):
     )
 
 
-def network_figure(nb, show):
+def network_figure(nb: dict[str, Any], show: Sequence[str]) -> go.Figure:
     pos = radial_layout(nb)
     center = nb["center"]
     center_is_drug = is_drug(center)
     fig = go.Figure()
 
-    def edges(kind, color, width, dash=None):
+    def edges(kind: str, color: str, width: float, dash: str | None = None) -> None:
         xs, ys = [], []
         for e in nb["edges"]:
             if e["kind"] == kind:
@@ -434,13 +445,22 @@ def network_figure(nb, show):
     if "predicted" in show:
         edges("predicted", PURPLE, 3, "dash")
 
-    def outward(n):
+    def outward(n: str) -> str:
         x, y = pos[n]
         vert = "top" if y > 0.35 else "bottom" if y < -0.35 else "middle"
         horiz = "right" if x > 0.35 else "left" if x < -0.35 else "center"
         return "top center" if (vert, horiz) == ("middle", "center") else f"{vert} {horiz}"
 
-    def nodes(ids, drug, size, fill, line_color, line_width, texts, textpos=None):
+    def nodes(
+        ids: list[str],
+        drug: bool,
+        size: int,
+        fill: str,
+        line_color: str,
+        line_width: int,
+        texts: list[str],
+        textpos: str | list[str] | None = None,
+    ) -> None:
         if not ids:
             return
         textpos = textpos or [outward(n) for n in ids]
@@ -529,7 +549,7 @@ def network_figure(nb, show):
     return fig
 
 
-def empty_figure(message):
+def empty_figure(message: str) -> go.Figure:
     fig = go.Figure()
     fig.add_annotation(
         text=message, showarrow=False, font=dict(family="Archivo", size=15, color=SECONDARY)
@@ -544,14 +564,21 @@ def empty_figure(message):
     return fig
 
 
-def score_text(score, shown):
+def score_text(score: float, shown: Sequence[float]) -> tuple[str, bool]:
     """Two decimals when they tell this candidate apart; '=' marks a tie."""
     text = f"{score:.2f}"
     tied = sum(f"{s:.2f}" == text for s in shown) > 1
     return ("=" + text, True) if tied else (text, False)
 
 
-def score_row(name, full_name, score, href, reason, shown=()):
+def score_row(
+    name: str,
+    full_name: str | None,
+    score: float,
+    href: str,
+    reason: str,
+    shown: Sequence[float] = (),
+) -> html.Div:
     return html.Div(
         [
             html.Div(
@@ -574,7 +601,9 @@ def score_row(name, full_name, score, href, reason, shown=()):
     )
 
 
-def details_panel(node, nb, scores, min_score):
+def details_panel(
+    node: str, nb: dict[str, Any], scores: dict[str, float], min_score: float
+) -> html.Div:
     drug = is_drug(node)
     name = G.nodes[node]["name"]
     if drug:
@@ -682,7 +711,7 @@ def details_panel(node, nb, scores, min_score):
 # ----- predictions view ------------------------------------------------------
 
 
-def prediction_table(rows_df):
+def prediction_table(rows_df: pd.DataFrame) -> html.Div:
     rows = [
         html.Tr(
             [
@@ -727,7 +756,7 @@ def prediction_table(rows_df):
     )
 
 
-def predictions_view():
+def predictions_view() -> html.Section:
     if PREDICTIONS is None:
         return html.Section(
             html.Div(
@@ -740,7 +769,7 @@ def predictions_view():
         )
     first = PREDICTIONS[PREDICTIONS["rank"] == 1]
 
-    def top(copy, n):
+    def top(copy: str, n: int) -> pd.DataFrame:
         return (
             first[first["copy"] == copy]
             .sort_values(["score", "target_known_drugs", "drug_id"], ascending=[False, True, True])
@@ -792,7 +821,7 @@ def predictions_view():
 # ----- evaluation view -------------------------------------------------------
 
 
-def metric_bar(name, block, colour, key="roc_auc"):
+def metric_bar(name: str, block: dict[str, Any], colour: str, key: str = "roc_auc") -> html.Div:
     value = block[key]
     lo, hi = block[f"{key}_ci95"] if key == "roc_auc" else block["average_precision_ci95"]
     return html.Div(
@@ -826,7 +855,7 @@ def metric_bar(name, block, colour, key="roc_auc"):
     )
 
 
-def split_panel(kind, split):
+def split_panel(kind: str, split: dict[str, Any]) -> html.Div:
     rows = [(name, split[key], colour) for key, name, colour in V3_ROWS]
     rows += [(name, split["baselines"][key], "grey") for key, name in BASELINE_ROWS]
     c = split["counts"]
@@ -872,7 +901,7 @@ def split_panel(kind, split):
     )
 
 
-def headline():
+def headline() -> html.Div:
     """The unseen-drug result and its cautious companions, from the results files."""
     cold = V3["splits"]["cold_drug"]
     test = cold["attribute_model"]["roc_auc"]
@@ -917,7 +946,7 @@ def headline():
     )
 
 
-def evaluation_view():
+def evaluation_view() -> html.Section:
     splits = V3["splits"]
     return html.Section(
         html.Div(
@@ -1028,7 +1057,7 @@ ATTRIBUTE_DESCRIPTIONS = [
 ]
 
 
-def methods_view():
+def methods_view() -> html.Section:
     ds = RESULTS["dataset"]
     r = RESULTS["splits"]["random"]["counts"]
     v2_val = RESULTS["app_model"]["per_drug_validation"]
@@ -1211,7 +1240,7 @@ def methods_view():
     )
 
 
-def threshold_paragraph(sug):
+def threshold_paragraph(sug: dict[str, Any]) -> str:
     if not sug:
         return "Suggestions have not been generated yet. Run: python predict_links.py"
     parts = []
@@ -1272,7 +1301,7 @@ app.layout = html.Div(
     Input("url", "pathname"),
     State("url", "search"),
 )
-def route(pathname, search):
+def route(pathname: str | None, search: str | None) -> tuple[html.Section, list[Component]]:
     pathname = pathname or "/"
     if pathname == "/predictions":
         return predictions_view(), nav(pathname)
@@ -1294,7 +1323,7 @@ def route(pathname, search):
     State("node-search", "value"),
     prevent_initial_call=True,
 )
-def recentre(click, current):
+def recentre(click: dict[str, Any] | None, current: str | None) -> str | None:
     if click and click["points"] and click["points"][0].get("customdata"):
         return click["points"][0]["customdata"]
     return current
@@ -1314,7 +1343,7 @@ app.clientside_callback(
     State("table-on", "data"),
     prevent_initial_call=True,
 )
-def flip_table(_, __, on):
+def flip_table(_: int, __: int, on: bool) -> bool:
     return not on
 
 
@@ -1324,7 +1353,7 @@ def flip_table(_, __, on):
     Output("nb-graph", "style"),
     Input("table-on", "data"),
 )
-def toggle_table(on):
+def toggle_table(on: bool) -> tuple[str, dict[str, str], dict[str, str]]:
     if on:
         return "view as network", {"display": "block"}, {"display": "none"}
     return "view as table", {"display": "none"}, {}
@@ -1336,7 +1365,7 @@ def toggle_table(on):
     State("node-search", "value"),
     prevent_initial_call=True,
 )
-def search(query, current):
+def search(query: str | None, current: str | None) -> list[dict[str, str]] | Any:
     """Server-side search: sending all 16,000 options made the page slow to load."""
     if not query:
         return dash.no_update
@@ -1346,13 +1375,13 @@ def search(query, current):
 @app.callback(
     Output("min-score", "value"), Input("node-search", "value"), prevent_initial_call=True
 )
-def threshold_for_node(node):
+def threshold_for_node(node: str | None) -> float:
     """Each model copy has its own calibrated default threshold."""
     return THRESHOLDS[copy_for(node)] if node else THRESHOLDS["seen"]
 
 
 @app.callback(Output("min-score-label", "children"), Input("min-score", "value"))
-def min_score_label(v):
+def min_score_label(v: float) -> str:
     return f"{v:.2f} and above"
 
 
@@ -1370,7 +1399,13 @@ def min_score_label(v):
     Input("all-types", "value"),
     Input("viewport-width", "data"),
 )
-def render(node, show, min_score, all_types, width):
+def render(
+    node: str | None,
+    show: list[str] | None,
+    min_score: float,
+    all_types: list[str],
+    width: int | None,
+) -> tuple[go.Figure, str, str, Component, Component, str, dict[str, str]]:
     hidden = {"display": "none"}
     if not node:
         msg = "Search for a drug or target to see its neighbourhood."

@@ -11,14 +11,14 @@ from synthetic import synthetic_tables
 from pipeline.link_prediction import DTILinkPredictor, bootstrap_ci
 
 
-def _predictor(split, train_negatives="uniform"):
+def _predictor(split: str, train_negatives: str = "uniform") -> DTILinkPredictor:
     p = DTILinkPredictor(seed=1, train_negatives=train_negatives)
     p.load_data(*synthetic_tables())
     p.split_edges(split)
     return p
 
 
-def test_held_out_edges_not_in_message_graph():
+def test_held_out_edges_not_in_message_graph() -> None:
     for split in ("random", "drug_holdout"):
         p = _predictor(split)
         for d, t in p.train_edges + p.test_edges:
@@ -26,7 +26,7 @@ def test_held_out_edges_not_in_message_graph():
         assert not set(p.train_edges) & set(p.test_edges)
 
 
-def test_drug_holdout_keeps_an_edge_per_test_drug():
+def test_drug_holdout_keeps_an_edge_per_test_drug() -> None:
     p = _predictor("drug_holdout")
     assert not set(p.test_drugs) & set(p.train_drugs)
     for d in p.test_drugs:
@@ -34,7 +34,7 @@ def test_drug_holdout_keeps_an_edge_per_test_drug():
         assert any(e[0] == d for e in p.test_edges)
 
 
-def test_degree_matched_negatives_same_drug_and_not_edges():
+def test_degree_matched_negatives_same_drug_and_not_edges() -> None:
     p = _predictor("drug_holdout")
     negs = p.sample_negatives(p.test_edges)
     assert len(negs) == len(p.test_edges) == len(set(negs))
@@ -42,7 +42,7 @@ def test_degree_matched_negatives_same_drug_and_not_edges():
         assert d == nd and not p.G.has_edge(nd, nt)
 
 
-def test_uniform_negatives_disjoint_from_exclude():
+def test_uniform_negatives_disjoint_from_exclude() -> None:
     p = _predictor("random")
     train_neg = p.sample_negatives(p.train_edges)
     test_neg = p.sample_negatives(p.test_edges, exclude=set(train_neg))
@@ -50,12 +50,12 @@ def test_uniform_negatives_disjoint_from_exclude():
     assert not any(p.G.has_edge(d, t) for d, t in test_neg)
 
 
-def test_seeded_and_reproducible():
+def test_seeded_and_reproducible() -> None:
     a, b = _predictor("random"), _predictor("random")
     assert a.test_edges == b.test_edges
 
 
-def test_train_and_baselines():
+def test_train_and_baselines() -> None:
     p = _predictor("random")
     perf = p.train_model()
     base = p.evaluation_results["baselines"]
@@ -67,14 +67,14 @@ def test_train_and_baselines():
     assert base["common_neighbors"]["roc_auc"] == 0.5
 
 
-def test_bootstrap_ci_brackets_point_estimate():
+def test_bootstrap_ci_brackets_point_estimate() -> None:
     y = [0, 1] * 50
     s = [0.2, 0.8] * 50
     ci = bootstrap_ci(y, s, n_boot=100)
     assert ci["roc_auc_ci95"] == [1.0, 1.0]
 
 
-def test_score_candidates_matches_per_pair_features():
+def test_score_candidates_matches_per_pair_features() -> None:
     from pipeline.embeddings import embed_graph
 
     p = _predictor("final")
@@ -91,7 +91,7 @@ def test_score_candidates_matches_per_pair_features():
     assert not any(p.G.has_edge(drug, t) for t in fast)
 
 
-def test_validation_carved_from_training_and_disjoint():
+def test_validation_carved_from_training_and_disjoint() -> None:
     for split in ("random", "drug_holdout", "final"):
         p = _predictor(split)
         assert set(p.fit_edges) | set(p.val_edges) == set(p.train_edges)
@@ -104,13 +104,13 @@ def test_validation_carved_from_training_and_disjoint():
     assert not {d for d, _ in p.fit_edges} & p.val_drugs
 
 
-def test_validation_does_not_change_message_graph_or_test():
+def test_validation_does_not_change_message_graph_or_test() -> None:
     a = _predictor("drug_holdout")
     b = _predictor("drug_holdout", train_negatives="degree_matched")
     assert a.test_edges == b.test_edges and a.message_edges == b.message_edges
 
 
-def test_degree_matched_training_negatives_and_calibration():
+def test_degree_matched_training_negatives_and_calibration() -> None:
     p = _predictor("drug_holdout", train_negatives="degree_matched")
     p.fit()
     assert all(fd == pd for (pd, _), (fd, _) in zip(p.fit_edges, p.fit_neg))
@@ -123,7 +123,7 @@ def test_degree_matched_training_negatives_and_calibration():
     assert ((s2 >= 0) & (s2 <= 1)).all()
 
 
-def test_degree_matched_negatives_match_message_graph_degree():
+def test_degree_matched_negatives_match_message_graph_degree() -> None:
     """Negatives must not differ from positives in the degree the model sees."""
     p = _predictor("drug_holdout")
     negs = p.sample_negatives(p.test_edges)
@@ -138,7 +138,7 @@ def test_degree_matched_negatives_match_message_graph_degree():
     assert abs(isolated_pos - isolated_neg) <= max(2, 0.1 * isolated_pos)
 
 
-def test_final_split_keeps_every_drug_visible():
+def test_final_split_keeps_every_drug_visible() -> None:
     p = _predictor("final")
     for d in p.drug_nodes:
         if p.G.degree(d) > 0:

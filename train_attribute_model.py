@@ -30,6 +30,7 @@ import platform
 import subprocess
 import sys
 import time
+from typing import Any
 
 
 if os.environ.get("PYTHONHASHSEED") != "0":
@@ -53,11 +54,13 @@ SPLITS = ("random", "drug_holdout", "cold_drug")
 COMMAND = "python train_attribute_model.py"
 
 
-def r4(x):
+def r4(x: float) -> float:
     return round(float(x), 4)
 
 
-def block(roc, ap, ci, val=None):
+def block(
+    roc: float, ap: float, ci: dict[str, list[float]], val: dict[str, float] | None = None
+) -> dict[str, Any]:
     out = {
         "roc_auc": r4(roc),
         "roc_auc_ci95": [r4(v) for v in ci["roc_auc_ci95"]],
@@ -69,7 +72,7 @@ def block(roc, ap, ci, val=None):
     return out
 
 
-def model_block(p):
+def model_block(p: DTILinkPredictor) -> dict[str, Any]:
     mp = p.evaluation_results["model_performance"]
     return block(
         mp["auc"],
@@ -79,7 +82,7 @@ def model_block(p):
     )
 
 
-def main():
+def main() -> None:
     t0 = time.time()
     for fp in (DRUGS_FP, TARGETS_FP, DTI_FP, DRUG_ATTR_FP, TARGET_ATTR_FP):
         if not fp.exists():

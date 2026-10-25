@@ -11,6 +11,7 @@ Nothing from DrugBank is copied row for row; only counts and medians.
 import json
 from pathlib import Path
 import sys
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -26,7 +27,9 @@ from pipeline.link_prediction import DTILinkPredictor  # noqa: E402
 COMMAND = "python scripts/site_results.py OUT.json"
 
 
-def spread(model, drugs, threshold, preds):
+def spread(
+    model: DTILinkPredictor, drugs: list[str], threshold: float, preds: pd.DataFrame
+) -> dict[str, Any]:
     G = model.G
     at = np.array(
         [
@@ -68,7 +71,7 @@ def spread(model, drugs, threshold, preds):
     }
 
 
-def main():
+def main() -> None:
     out = Path(sys.argv[1])
     res = {
         name: json.loads((ROOT / "results" / f"{name}.json").read_text())

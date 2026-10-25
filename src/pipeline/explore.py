@@ -1,8 +1,11 @@
 """Data behind the explore view: featured drugs, neighbourhoods, layout and evidence text."""
 
+from collections.abc import Callable, Iterable, Mapping
 import math
 import re
+from typing import TYPE_CHECKING, Any
 
+import networkx as nx
 import numpy as np
 import pandas as pd
 from rdkit import DataStructs
@@ -11,14 +14,19 @@ from rdkit import DataStructs
 # Carbon atom in SMILES: aromatic c, or C not starting a two-letter element (Cl, Ca, Cu, ...).
 _CARBON = re.compile(r"c|C(?![ladeflmnorsu])")
 
+Label = Callable[[str], str]
 
-def has_carbon(smiles):
+if TYPE_CHECKING:
+    from pipeline.attributes import AttributeLinkPredictor
+
+
+def has_carbon(smiles: str) -> bool:
     """True if a SMILES string contains a carbon atom (bracket atoms reduced to their element)."""
     atoms = re.sub(r"\[\d*([A-Za-z][a-z]?)[^\]]*\]", r"\1", smiles)
     return bool(_CARBON.search(atoms))
 
 
-def featured_mask(drugs_df):
+def featured_mask(drugs_df: pd.DataFrame) -> pd.Series:
     """Approved small molecules, excluding nutraceuticals, mixtures/salts and inorganic entries.
 
     DrugBank lists ions, salts and supplements (Copper, Zinc acetate, NADH,
@@ -38,11 +46,11 @@ def featured_mask(drugs_df):
     )
 
 
-def _names(G, nodes, label=None):
+def _names(G: nx.Graph, nodes: Iterable[str], label: Label | None = None) -> list[str]:
     return [label(n) if label else (G.nodes[n].get("name") or n) for n in nodes]
 
 
-def _join(names):
+def _join(names: list[str]) -> str:
     if len(names) == 1:
         return names[0]
     return ", ".join(names[:-1]) + " and " + names[-1]
@@ -52,7 +60,9 @@ STRUCTURE_CUTOFF = 0.5  # Tanimoto; fixed before looking at any suggestion
 NO_EVIDENCE = "No supporting evidence above threshold; ranked on model score alone."
 
 
-def _shared_partner_line(G, node, partner, name, max_names, label):
+def _shared_partner_line(
+    G: nx.Graph, node: str, partner: str, name: str, max_names: int, label: Label | None
+) -> str | None:
     is_drug = G.nodes[node]["node_type"] == "drug"
     node_partners = set(G.neighbors(node))
     support = []
@@ -74,7 +84,14 @@ def _shared_partner_line(G, node, partner, name, max_names, label):
     return f"Binds {who}, which {verb} drugs with {name}."
 
 
-def _attribute_lines(G, attr, drug, target, node_is_drug, label):
+def _attribute_lines(
+    G: nx.Graph,
+    attr: "AttributeLinkPredictor",
+    drug: str,
+    target: str,
+    node_is_drug: bool,
+    label: Label | None,
+) -> dict[str, str | None]:
     """Candidate evidence lines: {"structure", "family", "class"} (each a sentence or None)."""
     lab = label or (lambda n: G.nodes[n].get("name") or n)
     it = "it" if node_is_drug else lab(target)
@@ -124,7 +141,15 @@ def _attribute_lines(G, attr, drug, target, node_is_drug, label):
     return lines
 
 
-def evidence(G, node, partner, emb=None, max_names=2, label=None, attr=None):
+def evidence(
+    G: nx.Graph,
+    node: str,
+    partner: str,
+    emb: pd.DataFrame | None = None,
+    max_names: int = 2,
+    label: Label | None = None,
+    attr: "AttributeLinkPredictor | None" = None,
+) -> str:
     """One sentence of support in the data for a suggested link node-partner.
 
     Uses the full known graph. With `attr` (an AttributeLinkPredictor), the
@@ -170,15 +195,22 @@ def evidence(G, node, partner, emb=None, max_names=2, label=None, attr=None):
     return "No shared-target path in the data; the score comes from degree and embedding position."
 
 
-def rank_key(G, item):
+def rank_key(G: nx.Graph, item: tuple[str, float]) -> tuple[float, int, str]:
     """Suggestion order used everywhere: score, then rarer partner, then id."""
     partner, score = item
     return (-round(float(score), 6), G.degree(partner), partner)
 
 
 def neighbourhood(
-    G, node, scores, min_score, max_known=24, max_related=8, max_predicted=5, keep=None
-):
+    G: nx.Graph,
+    node: str,
+    scores: Mapping[str, float],
+    min_score: float,
+    max_known: int = 24,
+    max_related: int = 8,
+    max_predicted: int = 5,
+    keep: Callable[[str], bool] | None = None,
+) -> dict[str, Any]:
     """Nodes and edges around `node` for the network figure and the table view.
 
     Known partners are ordered most-connected first and capped at max_known.
@@ -225,7 +257,7 @@ def neighbourhood(
     }
 
 
-def radial_layout(nb):
+def radial_layout(nb: dict[str, Any]) -> dict[str, tuple[float, float]]:
     """Deterministic positions: known partners on an inner ring, predicted
     partners spread over the right side, related same-type nodes over the left
     side, ordered by where their shared partners sit."""
@@ -237,7 +269,7 @@ def radial_layout(nb):
         angle[k] = a
         pos[k] = (1.3 * math.cos(a), 1.3 * math.sin(a))
 
-    def spread(n, lo, hi):
+    def spread(n: int, lo: float, hi: float) -> list[float]:
         if n == 1:
             return [(lo + hi) / 2]
         return [lo + (hi - lo) * i / (n - 1) for i in range(n)]
@@ -246,7 +278,7 @@ def radial_layout(nb):
     for p, a in zip(predicted, spread(len(predicted), math.radians(55), math.radians(-55))):
         pos[p] = (2.25 * math.cos(a), 2.25 * math.sin(a))
 
-    def mean_angle(o):
+    def mean_angle(o: str) -> float:
         shared = nb["related_shared"][o]
         a = math.atan2(
             sum(math.sin(angle[k]) for k in shared), sum(math.cos(angle[k]) for k in shared)
@@ -259,7 +291,7 @@ def radial_layout(nb):
     return pos
 
 
-def edge_table(G, nb):
+def edge_table(G: nx.Graph, nb: dict[str, Any]) -> pd.DataFrame:
     """Rows for "view as table"."""
     rows = []
     for e in nb["edges"]:

@@ -23,10 +23,13 @@ The attribution field must be shown wherever the demo appears.
 """
 
 import argparse
+from collections.abc import Callable
 from datetime import date
 import json
 from pathlib import Path
 import sys
+
+import networkx as nx
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -78,7 +81,14 @@ REASON_KINDS = (
 )
 
 
-def reason(G, drug, target, model, label, with_text):
+def reason(
+    G: nx.Graph,
+    drug: str,
+    target: str,
+    model: DTILinkPredictor,
+    label: Callable[[str], str],
+    with_text: bool,
+) -> dict[str, str]:
     """The app's evidence line for this suggestion, with its kind (text only if allowed)."""
     text = evidence(G, drug, target, label=label, attr=model)
     kind = next(
@@ -87,7 +97,7 @@ def reason(G, drug, target, model, label, with_text):
     return {"kind": kind, "text": text} if with_text else {"kind": kind}
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("out")
     ap.add_argument("--include-known", action="store_true")
@@ -103,7 +113,7 @@ def main():
     by_name = dict(zip(drugs["name"], drugs["drug_id"]))
     genes = copies["seen"].targets_df.set_index("target_id")["gene_symbol"].to_dict()
 
-    def label(n):
+    def label(n: str) -> str:
         return genes.get(n) or G.nodes[n]["name"]
 
     thresholds = {k: results["app_suggestions"][k]["default_threshold"] for k in ("seen", "cold")}

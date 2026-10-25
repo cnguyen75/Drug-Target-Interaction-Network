@@ -26,7 +26,7 @@ TARGET_ATTR_FP = REPO_ROOT / "data_raw" / "target_attributes.parquet"
 CHEMONT = ("kingdom", "superclass", "class", "subclass", "direct-parent")
 
 
-def _is_human(target_elem, polypeptide):
+def _is_human(target_elem: etree._Element, polypeptide: etree._Element) -> bool:
     org = polypeptide.find("db:organism", NS)
     taxon = org.get("ncbi-taxonomy-id") if org is not None else None
     if taxon is not None:
@@ -34,7 +34,7 @@ def _is_human(target_elem, polypeptide):
     return (target_elem.findtext("db:organism", default="", namespaces=NS) or "") in HUMAN_LABELS
 
 
-def parse_attributes(xml_path: Path):
+def parse_attributes(xml_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     drugs, targets = {}, {}
     drug_tag = f"{{{NS_URI}}}drug"
     with open_drugbank(xml_path) as stream:
@@ -93,7 +93,7 @@ def parse_attributes(xml_path: Path):
     return pd.DataFrame(list(drugs.values())), pd.DataFrame(list(targets.values()))
 
 
-def main():
+def main() -> None:
     if not RAW_XML.exists():
         sys.exit(f"DrugBank export not found at {RAW_XML}; set DRUGBANK_PATH")
     drugs, targets = parse_attributes(RAW_XML)

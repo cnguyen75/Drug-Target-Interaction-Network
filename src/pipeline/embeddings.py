@@ -2,10 +2,12 @@
 
 import argparse
 import os
+from pathlib import Path
 import pickle
 import sys
 import time
 
+import networkx as nx
 import numpy as np
 import pandas as pd
 
@@ -22,7 +24,9 @@ except ImportError:
     sys.exit(1)
 
 
-def embed_graph(G, dims: int = 128, walklen: int = 40, walks: int = 10, seed: int = 42):
+def embed_graph(
+    G: nx.Graph, dims: int = 128, walklen: int = 40, walks: int = 10, seed: int = 42
+) -> pd.DataFrame:
     """Node2Vec embeddings for the non-isolated nodes of G, as a DataFrame indexed by node_id.
 
     Uses the same settings as train_embeddings (p=q=1, window=10). workers=1 and a
@@ -55,9 +59,9 @@ def train_embeddings(
     walklen: int = 40,
     walks: int = 10,
     seed: int = 42,
-    g_bip_fp=None,
-    emb_fp=None,
-):
+    g_bip_fp: Path | None = None,
+    emb_fp: Path | None = None,
+) -> None:
     """
     Train Node2Vec embeddings on the bipartite graph.
 
@@ -134,7 +138,7 @@ def train_embeddings(
     print(f"  Max: {embeddings.max():.4f}")
 
 
-def main():
+def main() -> None:
     """Main function to train embeddings."""
     parser = argparse.ArgumentParser(description="Train Node2Vec embeddings")
     parser.add_argument("--dims", type=int, default=128, help="Embedding dimensions")

@@ -4,7 +4,9 @@ import numpy as np
 import pandas as pd
 
 
-def synthetic_tables(n_drugs=120, n_targets=60, n_blocks=4, n_edges=500, seed=0):
+def synthetic_tables(
+    n_drugs: int = 120, n_targets: int = 60, n_blocks: int = 4, n_edges: int = 500, seed: int = 0
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Block-structured random bipartite data: drugs mostly hit targets in their own block."""
     rng = np.random.default_rng(seed)
     drugs = [f"SD{i:04d}" for i in range(n_drugs)]

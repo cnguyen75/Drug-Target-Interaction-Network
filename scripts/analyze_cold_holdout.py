@@ -19,6 +19,7 @@ import json
 import os
 from pathlib import Path
 import sys
+from typing import Any
 
 
 if os.environ.get("PYTHONHASHSEED") != "0":
@@ -49,7 +50,7 @@ BINS = [
 ]
 
 
-def main():
+def main() -> None:
     tables = (pd.read_parquet(DRUGS_FP), pd.read_parquet(TARGETS_FP), pd.read_parquet(DTI_FP))
     da, ta = pd.read_parquet(DRUG_ATTR_FP), pd.read_parquet(TARGET_ATTR_FP)
     graph = DTILinkPredictor(seed=SEED, train_negatives="degree_matched")
@@ -85,7 +86,7 @@ def main():
             else None
         )
 
-    def summarise(mask, label):
+    def summarise(mask: np.ndarray, label: str) -> dict[str, Any]:
         n_pos = int(y[mask].sum())
         drugs = len({pairs[i][0] for i in np.flatnonzero(mask)})
         row = {

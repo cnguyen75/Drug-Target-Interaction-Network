@@ -13,7 +13,12 @@ import pandas as pd
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 
-def build_bipartite_graph(drugs_df, targets_df, dti_df, connected_only=False):
+def build_bipartite_graph(
+    drugs_df: pd.DataFrame,
+    targets_df: pd.DataFrame,
+    dti_df: pd.DataFrame,
+    connected_only: bool = False,
+) -> nx.Graph:
     """Bipartite graph: drug and target nodes (node_type, name), one edge per known interaction.
 
     Interactions whose drug or target is missing from the tables are dropped,
@@ -38,7 +43,9 @@ def build_bipartite_graph(drugs_df, targets_df, dti_df, connected_only=False):
     return G
 
 
-def most_connected(dti_df, table, id_col, n=25):
+def most_connected(
+    dti_df: pd.DataFrame, table: pd.DataFrame, id_col: str, n: int = 25
+) -> pd.DataFrame:
     """Top n rows of `table` by number of distinct interaction partners, most connected first.
 
     Duplicate interaction rows are counted once and duplicate ids in `table`
@@ -58,7 +65,7 @@ def most_connected(dti_df, table, id_col, n=25):
     return unique.loc[top.index].assign(connections=top.values).reset_index()
 
 
-def graph_stats(G):
+def graph_stats(G: nx.Graph) -> dict[str, int]:
     drugs = [n for n, d in G.nodes(data=True) if d["node_type"] == "drug"]
     targets = [n for n, d in G.nodes(data=True) if d["node_type"] == "target"]
     return {
@@ -71,7 +78,7 @@ def graph_stats(G):
     }
 
 
-def main():
+def main() -> None:
     from config import DRUGS_FP, DTI_FP, TARGETS_FP
 
     G = build_bipartite_graph(

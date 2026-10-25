@@ -1,22 +1,31 @@
 """Drug repurposing analysis using embeddings and similarity."""
 
+from pathlib import Path
 import pickle
+from typing import Any
 
 import numpy as np
+import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
 
 
 class DrugRepurposer:
     """Drug repurposing analysis using embeddings and network features."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.drug_embeddings = None
         self.target_embeddings = None
         self.drugs_df = None
         self.targets_df = None
         self.dti_df = None
 
-    def load_data(self, drugs_df, targets_df, dti_df, embeddings_df=None):
+    def load_data(
+        self,
+        drugs_df: pd.DataFrame,
+        targets_df: pd.DataFrame,
+        dti_df: pd.DataFrame,
+        embeddings_df: pd.DataFrame | None = None,
+    ) -> None:
         """Load data for drug repurposing."""
         self.drugs_df = drugs_df
         self.targets_df = targets_df
@@ -46,7 +55,9 @@ class DrugRepurposer:
         else:
             print("No embeddings provided. Drug repurposing will use network-based similarity.")
 
-    def find_similar_drugs(self, drug_id, top_k=10, similarity_threshold=0.7):
+    def find_similar_drugs(
+        self, drug_id: str, top_k: int = 10, similarity_threshold: float = 0.7
+    ) -> list[dict[str, Any]]:
         """Find similar drugs based on embeddings or network similarity."""
         if drug_id not in self.drugs_df["drug_id"].values:
             return []
@@ -114,7 +125,7 @@ class DrugRepurposer:
         similar_drugs.sort(key=lambda x: x["similarity"], reverse=True)
         return similar_drugs[:top_k]
 
-    def repurposing_opportunities(self, drug_id, top_k=5):
+    def repurposing_opportunities(self, drug_id: str, top_k: int = 5) -> list[dict[str, Any]]:
         """Find repurposing opportunities for a drug."""
         if drug_id not in self.drugs_df["drug_id"].values:
             return []
@@ -150,7 +161,7 @@ class DrugRepurposer:
             )
         return opportunities
 
-    def save_model(self, filepath):
+    def save_model(self, filepath: str | Path) -> None:
         """Save the repurposing model."""
         model_data = {
             "drug_embeddings": self.drug_embeddings,
@@ -163,7 +174,7 @@ class DrugRepurposer:
         with open(filepath, "wb") as f:
             pickle.dump(model_data, f)
 
-    def load_model(self, filepath):
+    def load_model(self, filepath: str | Path) -> None:
         """Load a repurposing model."""
         with open(filepath, "rb") as f:
             model_data = pickle.load(f)

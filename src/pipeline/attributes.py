@@ -20,11 +20,15 @@ features are appended to the 12 graph features, so for a drug with no edges
 the graph half is uninformative and the attribute half carries the signal.
 """
 
+from collections.abc import Iterable, Mapping
+from typing import Any
+
 import numpy as np
+import pandas as pd
 from rdkit import Chem, DataStructs, RDLogger
 from rdkit.Chem import rdFingerprintGenerator
 
-from pipeline.link_prediction import FEATURE_NAMES, DTILinkPredictor
+from pipeline.link_prediction import FEATURE_NAMES, DTILinkPredictor, Edge
 
 
 RDLogger.DisableLog("rdApp.*")
@@ -41,11 +45,11 @@ ATTRIBUTE_FEATURES = [
 ]
 
 
-def _split(s):
+def _split(s: str | float | None) -> frozenset[str]:
     return frozenset(x for x in (s if isinstance(s, str) else "").split("|") if x)
 
 
-def _jaccard_max(a, others):
+def _jaccard_max(a: frozenset[str], others: Iterable[frozenset[str] | None]) -> float:
     if not a:
         return -1.0
     best = -1.0
@@ -58,12 +62,24 @@ def _jaccard_max(a, others):
 class AttributeLinkPredictor(DTILinkPredictor):
     """DTILinkPredictor with 8 attribute features appended (see module docstring)."""
 
-    def __init__(self, drug_attrs, target_attrs, seed=42, train_negatives="degree_matched"):
+    def __init__(
+        self,
+        drug_attrs: pd.DataFrame,
+        target_attrs: pd.DataFrame,
+        seed: int = 42,
+        train_negatives: str = "degree_matched",
+    ) -> None:
         super().__init__(seed=seed, train_negatives=train_negatives)
         self.drug_attrs = drug_attrs.set_index("drug_id")
         self.target_attrs = target_attrs.set_index("target_id")
 
-    def load_data(self, drugs_df, targets_df, dti_df, embeddings_df=None):
+    def load_data(
+        self,
+        drugs_df: pd.DataFrame,
+        targets_df: pd.DataFrame,
+        dti_df: pd.DataFrame,
+        embeddings_df: pd.DataFrame | None = None,
+    ) -> None:
         super().load_data(drugs_df, targets_df, dti_df, embeddings_df)
         gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
         self.fps = {}
@@ -94,13 +110,13 @@ class AttributeLinkPredictor(DTILinkPredictor):
         self.fp_pos = {d: i for i, d in enumerate(self.fp_drugs)}
         self.fp_list = [self.fps[d] for d in self.fp_drugs]
 
-    def split_edges(self, kind="random"):
+    def split_edges(self, kind: str = "random") -> tuple[list[Edge], list[Edge]]:
         out = super().split_edges(kind)
         self._family_cache = {}
         self._target_index = {}
         return out
 
-    def _index(self, t):
+    def _index(self, t: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Cached position arrays for a target's binders and family binders."""
         if t not in self._target_index:
             binders = self._binders(t)
@@ -112,7 +128,7 @@ class AttributeLinkPredictor(DTILinkPredictor):
             )
         return self._target_index[t]
 
-    def _drug_attribute_matrix(self, d, targets):
+    def _drug_attribute_matrix(self, d: str, targets: list[str]) -> np.ndarray:
         """attribute_features(d, t) for many targets t, computed from vectors."""
         n_all = len(self.all_drugs)
         sims = (
@@ -125,7 +141,9 @@ class AttributeLinkPredictor(DTILinkPredictor):
         cats = self.categories.get(d, frozenset())
         atc = self.atc4.get(d, frozenset())
 
-        def jaccards(sets_of, own):
+        def jaccards(
+            sets_of: Mapping[str, frozenset[str]], own: frozenset[str]
+        ) -> np.ndarray | None:
             if not own:
                 return None
             out = np.full(n_all, -1.0)
@@ -162,10 +180,10 @@ class AttributeLinkPredictor(DTILinkPredictor):
             rows.append([fp_max, fp_top3, fam_max, cat, at, c_sh, s_sh, has])
         return np.array(rows, dtype=float).reshape(len(targets), len(ATTRIBUTE_FEATURES))
 
-    def _binders(self, t):
+    def _binders(self, t: str) -> list[str]:
         return list(self.train_graph.neighbors(t)) if t in self.train_graph else []
 
-    def _family_binders(self, t):
+    def _family_binders(self, t: str) -> list[str]:
         if t not in self._family_cache:
             related = (
                 set().union(*(self.pfam_targets.get(f, set()) for f in self.pfams.get(t, ())))
@@ -176,13 +194,13 @@ class AttributeLinkPredictor(DTILinkPredictor):
             self._family_cache[t] = sorted({b for r in related for b in self._binders(r)})
         return self._family_cache[t]
 
-    def _sims(self, d, others):
+    def _sims(self, d: str, others: Iterable[str]) -> np.ndarray:
         fps = [self.fps[o] for o in others if o in self.fps and o != d]
         if d not in self.fps or not fps:
             return np.array([])
         return np.array(DataStructs.BulkTanimotoSimilarity(self.fps[d], fps))
 
-    def attribute_features(self, d, t):
+    def attribute_features(self, d: str, t: str) -> np.ndarray:
         binders = [b for b in self._binders(t) if b != d]
         sims = self._sims(d, binders)
         fam = self._sims(d, [b for b in self._family_binders(t) if b != d])
@@ -208,19 +226,19 @@ class AttributeLinkPredictor(DTILinkPredictor):
             dtype=float,
         )
 
-    def _features(self, pairs):
+    def _features(self, pairs: Iterable[Edge]) -> np.ndarray:
         base = super()._features(pairs)
         attrs = np.vstack([self.attribute_features(d, t) for d, t in pairs])
         return np.hstack([base, attrs])
 
-    def evaluate_test(self):
+    def evaluate_test(self) -> dict[str, Any]:
         perf = super().evaluate_test()
         self.evaluation_results["feature_importances"] = dict(
             zip(FEATURE_NAMES + ATTRIBUTE_FEATURES, self.model.feature_importances_)
         )
         return perf
 
-    def _candidate_matrix(self, node, candidates):
+    def _candidate_matrix(self, node: str, candidates: list[str]) -> np.ndarray:
         base = super()._candidate_matrix(node, candidates)
         if node in self.drug_nodes:
             attrs = self._drug_attribute_matrix(node, candidates)
@@ -228,6 +246,6 @@ class AttributeLinkPredictor(DTILinkPredictor):
             attrs = np.vstack([self.attribute_features(d, node) for d in candidates])
         return np.hstack([base, attrs])
 
-    def predict_interaction(self, drug_id, target_id):
+    def predict_interaction(self, drug_id: str, target_id: str) -> float:
         raw = self._raw_scores([(drug_id, target_id)])
         return float(self._calibrated(raw)[0])

@@ -1,9 +1,16 @@
 """Advanced analytics for drug discovery and network analysis."""
 
+from typing import TYPE_CHECKING, Any
+
 import community  # python-louvain
 import networkx as nx
+import pandas as pd
 
 from pipeline.drug_repurposing import DrugRepurposer
+
+
+if TYPE_CHECKING:
+    from pipeline.link_prediction import DTILinkPredictor
 
 
 class DrugRepurposingAnalytics:
@@ -13,18 +20,26 @@ class DrugRepurposingAnalytics:
     empty state; nothing is computed from placeholder vectors.
     """
 
-    def __init__(self, drugs_df, targets_df, dti_df, embeddings_df=None):
+    def __init__(
+        self,
+        drugs_df: pd.DataFrame,
+        targets_df: pd.DataFrame,
+        dti_df: pd.DataFrame,
+        embeddings_df: pd.DataFrame | None = None,
+    ) -> None:
         self.repurposer = DrugRepurposer()
         self.repurposer.load_data(drugs_df, targets_df, dti_df, embeddings_df)
         self.has_embeddings = embeddings_df is not None
 
-    def find_similar_drugs(self, drug_id, top_k=10, similarity_threshold=0.7):
+    def find_similar_drugs(
+        self, drug_id: str, top_k: int = 10, similarity_threshold: float = 0.7
+    ) -> list[dict[str, Any]]:
         """Most similar drugs by cosine similarity of their embeddings."""
         if not self.has_embeddings:
             return []
         return self.repurposer.find_similar_drugs(drug_id, top_k, similarity_threshold)
 
-    def repurposing_opportunities(self, drug_id, top_k=5):
+    def repurposing_opportunities(self, drug_id: str, top_k: int = 5) -> list[dict[str, Any]]:
         """Targets most similar to the drug's current targets."""
         if not self.has_embeddings:
             return []
@@ -34,13 +49,15 @@ class DrugRepurposingAnalytics:
 class NetworkAnalytics:
     """Network analytics for community detection and centrality analysis."""
 
-    def __init__(self, G, drugs_df, targets_df, dti_df):
+    def __init__(
+        self, G: nx.Graph, drugs_df: pd.DataFrame, targets_df: pd.DataFrame, dti_df: pd.DataFrame
+    ) -> None:
         self.G = G
         self.drugs_df = drugs_df
         self.targets_df = targets_df
         self.dti_df = dti_df
 
-    def centrality_analysis(self, drug_id=None):
+    def centrality_analysis(self, drug_id: str | None = None) -> dict[str, Any]:
         """Analyze network centrality metrics."""
         if drug_id:
             # Focused analysis on specific drug
@@ -88,7 +105,7 @@ class NetworkAnalytics:
 
         return centrality_metrics
 
-    def community_detection(self):
+    def community_detection(self) -> dict[int, set[str]]:
         """Detect communities in the network."""
         communities = {}
 
@@ -144,13 +161,21 @@ class NetworkAnalytics:
 class PredictiveInsights:
     """Predictive insights for drug combinations and interactions."""
 
-    def __init__(self, drugs_df, targets_df, dti_df, link_predictor=None):
+    def __init__(
+        self,
+        drugs_df: pd.DataFrame,
+        targets_df: pd.DataFrame,
+        dti_df: pd.DataFrame,
+        link_predictor: "DTILinkPredictor | None" = None,
+    ) -> None:
         self.drugs_df = drugs_df
         self.targets_df = targets_df
         self.dti_df = dti_df
         self.link_predictor = link_predictor
 
-    def drug_combination_recommendations(self, drug_id, top_k=5):
+    def drug_combination_recommendations(
+        self, drug_id: str, top_k: int = 5
+    ) -> list[dict[str, Any]]:
         """Find drug combination recommendations."""
         if drug_id not in self.drugs_df["drug_id"].values:
             return []
@@ -196,7 +221,7 @@ class PredictiveInsights:
         recommendations.sort(key=lambda x: x["complementarity_score"], reverse=True)
         return recommendations[:top_k]
 
-    def drug_drug_interaction_warnings(self, drug_id, top_k=5):
+    def drug_drug_interaction_warnings(self, drug_id: str, top_k: int = 5) -> list[dict[str, Any]]:
         """Find potential drug-drug interaction warnings."""
         if drug_id not in self.drugs_df["drug_id"].values:
             return []

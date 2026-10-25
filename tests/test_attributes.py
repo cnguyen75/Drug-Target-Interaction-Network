@@ -18,7 +18,7 @@ from pipeline.link_prediction import DTILinkPredictor
 SMILES = ["CCO", "CCN", "c1ccccc1O", "c1ccccc1N", "CC(=O)O", "CCCC", None]
 
 
-def _tables():
+def _tables() -> tuple[tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], pd.DataFrame, pd.DataFrame]:
     drugs, targets, dti = synthetic_tables()
     drugs = drugs.assign(
         smiles=[SMILES[i % len(SMILES)] for i in range(len(drugs))],
@@ -41,7 +41,7 @@ def _tables():
     return (drugs, targets, dti), drug_attrs, target_attrs
 
 
-def test_cold_drug_split_removes_every_edge_of_test_and_train_drugs():
+def test_cold_drug_split_removes_every_edge_of_test_and_train_drugs() -> None:
     p = DTILinkPredictor(seed=3, train_negatives="degree_matched")
     p.load_data(*synthetic_tables())
     p.split_edges("cold_drug")
@@ -54,7 +54,7 @@ def test_cold_drug_split_removes_every_edge_of_test_and_train_drugs():
     assert all(d == nd for (d, _), (nd, _) in zip(p.test_edges, negs))
 
 
-def test_attribute_model_same_split_and_negatives_as_graph_model():
+def test_attribute_model_same_split_and_negatives_as_graph_model() -> None:
     tables, da, ta = _tables()
     a = DTILinkPredictor(seed=3, train_negatives="degree_matched")
     b = AttributeLinkPredictor(da, ta, seed=3)
@@ -67,7 +67,7 @@ def test_attribute_model_same_split_and_negatives_as_graph_model():
     assert b._features(b.fit_edges[:4]).shape[1] == 12 + len(ATTRIBUTE_FEATURES)
 
 
-def test_attribute_features_use_message_graph_only():
+def test_attribute_features_use_message_graph_only() -> None:
     tables, da, ta = _tables()
     p = AttributeLinkPredictor(da, ta, seed=3)
     p.load_data(*tables)
@@ -93,7 +93,7 @@ def test_attribute_features_use_message_graph_only():
         assert np.isclose(f["fp_max_binders"], 1.0)
 
 
-def test_vectorised_candidate_features_match_per_pair():
+def test_vectorised_candidate_features_match_per_pair() -> None:
     tables, da, ta = _tables()
     p = AttributeLinkPredictor(da, ta, seed=3)
     p.load_data(*tables)
@@ -113,7 +113,7 @@ def test_vectorised_candidate_features_match_per_pair():
     )
 
 
-def test_cold_copy_scores_a_drug_with_no_known_targets():
+def test_cold_copy_scores_a_drug_with_no_known_targets() -> None:
     (drugs, targets, dti), da, ta = _tables()
     lonely = drugs["drug_id"].iloc[-1]
     dti = dti[dti["drug_id"] != lonely]
@@ -130,7 +130,7 @@ def test_cold_copy_scores_a_drug_with_no_known_targets():
     assert all(0 <= s <= 1 for s in scores.values())
 
 
-def test_app_copies_never_isolate_a_target():
+def test_app_copies_never_isolate_a_target() -> None:
     for kind in ("final", "final_cold"):
         p = DTILinkPredictor(seed=3, train_negatives="degree_matched")
         p.load_data(*synthetic_tables())
@@ -141,7 +141,7 @@ def test_app_copies_never_isolate_a_target():
         assert p.train_edges
 
 
-def test_evaluation_splits_unchanged_by_keep_targets_option():
+def test_evaluation_splits_unchanged_by_keep_targets_option() -> None:
     """keep_targets is off for evaluation splits, so they may still isolate targets."""
     a = DTILinkPredictor(seed=3, train_negatives="degree_matched")
     a.load_data(*synthetic_tables())

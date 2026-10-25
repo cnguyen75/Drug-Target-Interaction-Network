@@ -12,11 +12,13 @@ Writes data_raw/drugs_full.parquet, targets_full.parquet and dti_full.parquet,
 which app.py and scripts/train_ml_models.py read.
 """
 
+from collections.abc import Iterator
 from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
 import sys
+from typing import IO, Any
 import zipfile
 
 from lxml import etree
@@ -48,12 +50,17 @@ TARGET_COLUMNS = ["target_id", "name", "gene_symbol", "organism", "is_human", "p
 DTI_COLUMNS = ["drug_id", "target_id", "action"]
 
 
-def _text(elem, path):
+def _text(elem: etree._Element, path: str) -> str:
     found = elem.find(path, NS)
     return found.text if found is not None and found.text else ""
 
 
-def _parse_drug(drug_elem, drugs_data, targets_data, dti_data):
+def _parse_drug(
+    drug_elem: etree._Element,
+    drugs_data: list[dict[str, Any]],
+    targets_data: list[dict[str, Any]],
+    dti_data: list[dict[str, str]],
+) -> None:
     """Append one top-level <drug> element's rows to the three output lists."""
     drug_id = drug_elem.find("db:drugbank-id[@primary='true']", NS)
     if drug_id is None or not (drug_id.text or "").strip():
@@ -135,7 +142,7 @@ def _parse_drug(drug_elem, drugs_data, targets_data, dti_data):
 
 
 @contextmanager
-def open_drugbank(path: Path):
+def open_drugbank(path: Path) -> Iterator[IO[bytes]]:
     """Open a DrugBank export as a binary stream, reading a .zip's single XML member."""
     path = Path(path)
     if zipfile.is_zipfile(path):
@@ -198,7 +205,7 @@ def parse_drugbank_xml(xml_path: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.D
     return drugs_df, targets_df, dti_df
 
 
-def main():
+def main() -> None:
     """Parse DrugBank XML and save to parquet files."""
     if not RAW_XML.exists():
         print(f"Error: DrugBank export not found at {RAW_XML}")

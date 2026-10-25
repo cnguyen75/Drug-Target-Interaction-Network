@@ -37,7 +37,7 @@ SHORTLIST = 10
 RESULTS_FP = Path("results/results_attributes.json")
 
 
-def main():
+def main() -> None:
     copies = {}
     for name in ("seen", "cold"):
         fp = Path(f"models/attribute_model_{name}.pkl")
@@ -48,7 +48,7 @@ def main():
     G = seen.G
     genes = seen.targets_df.set_index("target_id")["gene_symbol"].to_dict()
 
-    def label(n):
+    def label(n: str) -> str:
         return genes.get(n) or G.nodes[n]["name"]
 
     featured = seen.drugs_df[featured_mask(seen.drugs_df)]["drug_id"]

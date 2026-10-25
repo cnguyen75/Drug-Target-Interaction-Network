@@ -13,7 +13,7 @@ from synthetic import synthetic_tables
 from pipeline.build_graph import build_bipartite_graph, graph_stats
 
 
-def test_bipartite_and_typed():
+def test_bipartite_and_typed() -> None:
     drugs, targets, dti = synthetic_tables()
     G = build_bipartite_graph(drugs, targets, dti)
     assert G.number_of_edges() == len(dti)
@@ -21,7 +21,7 @@ def test_bipartite_and_typed():
         assert {G.nodes[a]["node_type"], G.nodes[b]["node_type"]} == {"drug", "target"}
 
 
-def test_unknown_endpoints_dropped():
+def test_unknown_endpoints_dropped() -> None:
     drugs, targets, dti = synthetic_tables()
     extra = pd.DataFrame([{"drug_id": "NOPE", "target_id": targets["target_id"][0]}])
     G = build_bipartite_graph(drugs, targets, pd.concat([dti, extra]))
@@ -29,14 +29,14 @@ def test_unknown_endpoints_dropped():
     assert all("node_type" in d for _, d in G.nodes(data=True))
 
 
-def test_connected_only_and_stats():
+def test_connected_only_and_stats() -> None:
     drugs, targets, dti = synthetic_tables()
     G = build_bipartite_graph(drugs, targets, dti, connected_only=True)
     s = graph_stats(G)
     assert s["drugs"] == s["drugs_with_edges"] and s["targets"] == s["targets_with_edges"]
 
 
-def test_most_connected_no_duplicates_and_ranked():
+def test_most_connected_no_duplicates_and_ranked() -> None:
     from pipeline.build_graph import most_connected
 
     drugs, targets, dti = synthetic_tables()

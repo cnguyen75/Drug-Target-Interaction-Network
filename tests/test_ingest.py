@@ -15,7 +15,7 @@ from datasources.drugbank_loader import parse_drugbank_xml
 class TestDrugBankIngest:
     """Test DrugBank XML ingestion."""
 
-    def test_parse_tiny_xml(self):
+    def test_parse_tiny_xml(self) -> None:
         """Test parsing of tiny DrugBank XML fixture."""
         xml_path = Path(__file__).parent / "fixtures" / "tiny_drugbank.xml"
 
@@ -44,7 +44,7 @@ class TestDrugBankIngest:
         for col in required_dti_cols:
             assert col in dti_df.columns, f"Missing DTI column: {col}"
 
-    def test_approved_boolean_parsed(self):
+    def test_approved_boolean_parsed(self) -> None:
         """Test that approved boolean is correctly parsed."""
         xml_path = Path(__file__).parent / "fixtures" / "tiny_drugbank.xml"
 
@@ -63,7 +63,7 @@ class TestDrugBankIngest:
         assert "DB00002" in approved_drugs["drug_id"].values
         assert "DB00003" in unapproved_drugs["drug_id"].values
 
-    def test_human_filtering(self):
+    def test_human_filtering(self) -> None:
         """Test that only human targets are kept."""
         xml_path = Path(__file__).parent / "fixtures" / "tiny_drugbank.xml"
 
@@ -81,7 +81,7 @@ class TestDrugBankIngest:
         assert "P99999" not in targets_df["target_id"].values
         assert "P88888" not in targets_df["target_id"].values
 
-    def test_missing_ids_excluded(self):
+    def test_missing_ids_excluded(self) -> None:
         """Test that drugs/targets with missing IDs are excluded."""
         xml_path = Path(__file__).parent / "fixtures" / "tiny_drugbank.xml"
 
@@ -101,7 +101,7 @@ class TestDrugBankIngest:
         assert not dti_df["drug_id"].isna().any(), "No DTI should have missing drug ID"
         assert not dti_df["target_id"].isna().any(), "No DTI should have missing target ID"
 
-    def test_deduplication(self):
+    def test_deduplication(self) -> None:
         """Test that duplicates are removed."""
         xml_path = Path(__file__).parent / "fixtures" / "tiny_drugbank.xml"
 
@@ -116,7 +116,7 @@ class TestDrugBankIngest:
         # Check no duplicate DTI edges
         assert len(dti_df) == len(dti_df.drop_duplicates(subset=["drug_id", "target_id"]))
 
-    def test_atc_code_parsing(self):
+    def test_atc_code_parsing(self) -> None:
         """Test ATC code parsing."""
         xml_path = Path(__file__).parent / "fixtures" / "tiny_drugbank.xml"
 
@@ -131,7 +131,7 @@ class TestDrugBankIngest:
         assert drug2["atc_l1"] == "B"
         assert drug2["atc_l2"] == "B02"
 
-    def test_smiles_parsing(self):
+    def test_smiles_parsing(self) -> None:
         """Test SMILES parsing."""
         xml_path = Path(__file__).parent / "fixtures" / "tiny_drugbank.xml"
 
@@ -145,7 +145,7 @@ class TestDrugBankIngest:
         drug2 = drugs_df[drugs_df["drug_id"] == "DB00002"].iloc[0]
         assert pd.isna(drug2["smiles"])
 
-    def test_drug_type_from_attribute(self):
+    def test_drug_type_from_attribute(self) -> None:
         """Test that drug type comes from the <drug type=...> attribute."""
         xml_path = Path(__file__).parent / "fixtures" / "tiny_drugbank.xml"
 
@@ -155,7 +155,7 @@ class TestDrugBankIngest:
         assert types["DB00001"] == "small molecule"
         assert types["DB00002"] == "biotech"
 
-    def test_nested_drug_references_ignored(self):
+    def test_nested_drug_references_ignored(self) -> None:
         """Test that <drug> references nested inside an entry are not entries."""
         xml_path = Path(__file__).parent / "fixtures" / "tiny_drugbank.xml"
 
@@ -166,7 +166,7 @@ class TestDrugBankIngest:
         assert len(dti_df) == 3
 
 
-def test_attribute_parsing():
+def test_attribute_parsing() -> None:
     """Categories, ChemOnt classification and Pfam families (attribute model inputs)."""
     from datasources.drugbank_attributes import parse_attributes
 

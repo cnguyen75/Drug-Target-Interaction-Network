@@ -27,17 +27,23 @@ In both splits, train and test positives are absent from the message graph,
 so the model is trained on the same feature distribution it is tested on.
 """
 
+from collections.abc import Collection, Iterable
 import math
+from pathlib import Path
 import pickle
+from typing import Any
 
 import networkx as nx
 import numpy as np
+import pandas as pd
 from sklearn.calibration import calibration_curve
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import auc as area_under_curve
 from sklearn.metrics import average_precision_score, precision_recall_curve, roc_auc_score
 from sklearn.preprocessing import StandardScaler
 
+
+Edge = tuple[str, str]
 
 FEATURE_NAMES = [
     "drug_degree",
@@ -78,11 +84,19 @@ SPLIT_DESCRIPTIONS = {
 }
 
 
-def _ranking_metrics(y, scores):
+def _ranking_metrics(
+    y: np.ndarray | list[float], scores: np.ndarray | list[float]
+) -> tuple[float, float]:
     return roc_auc_score(y, scores), average_precision_score(y, scores)
 
 
-def bootstrap_ci(y, scores, n_boot=1000, seed=42, alpha=0.05):
+def bootstrap_ci(
+    y: np.ndarray | list[int],
+    scores: np.ndarray | list[float],
+    n_boot: int = 1000,
+    seed: int = 42,
+    alpha: float = 0.05,
+) -> dict[str, Any]:
     """Percentile bootstrap CIs for ROC AUC and AP, resampling test pairs with replacement."""
     rng = np.random.default_rng(seed)
     y = np.asarray(y)
@@ -106,7 +120,7 @@ def bootstrap_ci(y, scores, n_boot=1000, seed=42, alpha=0.05):
 class DTILinkPredictor:
     """Drug-Target Interaction Link Predictor using machine learning."""
 
-    def __init__(self, seed=42, train_negatives="uniform"):
+    def __init__(self, seed: int = 42, train_negatives: str = "uniform") -> None:
         """train_negatives: "uniform" (random unlinked pairs) or "degree_matched"
         (same drug, target from the same degree bin) for the training pairs.
         Validation and test negatives always follow the split's own protocol."""
@@ -129,7 +143,13 @@ class DTILinkPredictor:
         self.test_edges = []
         self.embeddings_df = None
 
-    def load_data(self, drugs_df, targets_df, dti_df, embeddings_df=None):
+    def load_data(
+        self,
+        drugs_df: pd.DataFrame,
+        targets_df: pd.DataFrame,
+        dti_df: pd.DataFrame,
+        embeddings_df: pd.DataFrame | None = None,
+    ) -> None:
         """Load data for link prediction."""
         from pipeline.build_graph import build_bipartite_graph
 
@@ -142,18 +162,18 @@ class DTILinkPredictor:
         self.target_nodes = {n for n, d in self.G.nodes(data=True) if d["node_type"] == "target"}
         print(f"Built graph: {len(self.G.nodes())} nodes, {len(self.G.edges())} edges")
 
-    def set_embeddings(self, embeddings_df):
+    def set_embeddings(self, embeddings_df: pd.DataFrame | None) -> None:
         """Use node embeddings indexed by node_id (or with a node_id column)."""
         if embeddings_df is not None and "node_id" in embeddings_df.columns:
             embeddings_df = embeddings_df.set_index("node_id")
         self.embeddings_df = embeddings_df
 
-    def _sorted_edges(self):
+    def _sorted_edges(self) -> list[Edge]:
         return sorted((a, b) if a in self.drug_nodes else (b, a) for a, b in self.G.edges())
 
     # ----- splits -------------------------------------------------------------
 
-    def split_edges(self, kind="random"):
+    def split_edges(self, kind: str = "random") -> tuple[list[Edge], list[Edge]]:
         """Split known edges into message / train / test sets (seeded). Returns (train, test)."""
         edges = self._sorted_edges()
         if kind == "random":
@@ -194,7 +214,9 @@ class DTILinkPredictor:
         )
         return train, test
 
-    def _carve_validation(self, kind, train, frac=0.25):
+    def _carve_validation(
+        self, kind: str, train: list[Edge], frac: float = 0.25
+    ) -> tuple[list[Edge], list[Edge]]:
         """Hold back a quarter of the training positives for validation.
 
         Per-drug split: the last quarter of the (already shuffled) training
@@ -212,7 +234,13 @@ class DTILinkPredictor:
         n_val = int(len(train) * frac)
         return train[: len(train) - n_val], train[len(train) - n_val :]
 
-    def _cold_drug(self, edges, drug_frac=0.2, test=True, keep_targets=False):
+    def _cold_drug(
+        self,
+        edges: list[Edge],
+        drug_frac: float = 0.2,
+        test: bool = True,
+        keep_targets: bool = False,
+    ) -> tuple[list[Edge], list[Edge]]:
         """Whole-drug holdout: every edge of the test drugs (and of the training
         drugs, so training looks like testing) is removed from the message graph.
 
@@ -249,7 +277,14 @@ class DTILinkPredictor:
         test = [e for d in self.test_drugs for e in by_drug[d]]
         return train, test
 
-    def _drug_holdout(self, edges, drug_frac=0.2, edge_frac=0.5, test=True, keep_targets=False):
+    def _drug_holdout(
+        self,
+        edges: list[Edge],
+        drug_frac: float = 0.2,
+        edge_frac: float = 0.5,
+        test: bool = True,
+        keep_targets: bool = False,
+    ) -> tuple[list[Edge], list[Edge]]:
         by_drug = {}
         for d, t in edges:
             by_drug.setdefault(d, []).append((d, t))
@@ -265,7 +300,7 @@ class DTILinkPredictor:
         for _, t in edges:
             remaining[t] = remaining.get(t, 0) + 1
 
-        def hide(drugs):
+        def hide(drugs: list[str]) -> list[Edge]:
             hidden = []
             for d in drugs:
                 es = by_drug[d]
@@ -283,7 +318,12 @@ class DTILinkPredictor:
 
     # ----- negatives ----------------------------------------------------------
 
-    def sample_negatives(self, positives, exclude=frozenset(), scheme=None):
+    def sample_negatives(
+        self,
+        positives: list[Edge],
+        exclude: Collection[Edge] = frozenset(),
+        scheme: str | None = None,
+    ) -> list[Edge]:
         """One negative per positive: degree-matched or uniform.
 
         scheme defaults to the split's protocol: uniform for the random split;
@@ -300,7 +340,7 @@ class DTILinkPredictor:
             return self._degree_matched_negatives(positives, exclude)
         return self._uniform_negatives(len(positives), exclude)
 
-    def _uniform_negatives(self, n, exclude):
+    def _uniform_negatives(self, n: int, exclude: Collection[Edge]) -> list[Edge]:
         drugs = sorted(d for d in self.drug_nodes if self.G.degree(d) > 0)
         targets = sorted(t for t in self.target_nodes if self.G.degree(t) > 0)
         pairs = set()
@@ -316,7 +356,7 @@ class DTILinkPredictor:
                     break
         return sorted(pairs)
 
-    def _degree_bin(self, t):
+    def _degree_bin(self, t: str) -> int:
         """Bin of the target's degree in the message graph, the degree the model sees.
 
         Binning on full-graph degree leaked: a held-out positive's target has
@@ -327,7 +367,9 @@ class DTILinkPredictor:
         k = self.train_graph.degree(t)
         return -1 if k == 0 else int(math.log2(k))
 
-    def _degree_matched_negatives(self, positives, exclude):
+    def _degree_matched_negatives(
+        self, positives: list[Edge], exclude: Collection[Edge]
+    ) -> list[Edge]:
         bins = {}
         for t in sorted(self.target_nodes):
             if self.G.degree(t) > 0:
@@ -356,7 +398,9 @@ class DTILinkPredictor:
 
     # ----- features -----------------------------------------------------------
 
-    def extract_features_safe(self, drug_id, target_id, use_train_graph=True):
+    def extract_features_safe(
+        self, drug_id: str, target_id: str, use_train_graph: bool = True
+    ) -> np.ndarray:
         """Extract features for a drug-target pair from the message graph."""
         graph = self.train_graph if use_train_graph else self.G
 
@@ -410,12 +454,12 @@ class DTILinkPredictor:
             dtype=float,
         )
 
-    def _features(self, pairs):
+    def _features(self, pairs: Iterable[Edge]) -> np.ndarray:
         return np.vstack([self.extract_features_safe(d, t) for d, t in pairs])
 
     # ----- training and evaluation -------------------------------------------
 
-    def train_model(self, evaluate_test=True):
+    def train_model(self, evaluate_test: bool = True) -> dict[str, Any]:
         """Fit on the fit pairs, score the validation pairs, and (optionally) the test pairs."""
         self.fit()
         self.validate()
@@ -423,7 +467,7 @@ class DTILinkPredictor:
             self.evaluate_test()
         return self.evaluation_results["model_performance"]
 
-    def fit(self):
+    def fit(self) -> None:
         """Fit the forest on the fit positives and their negatives."""
         if self.train_graph is None:
             self.split_edges("random")
@@ -444,10 +488,10 @@ class DTILinkPredictor:
             }
         }
 
-    def _raw_scores(self, pairs):
+    def _raw_scores(self, pairs: Iterable[Edge]) -> np.ndarray:
         return self.model.predict_proba(self.scaler.transform(self._features(pairs)))[:, 1]
 
-    def validate(self):
+    def validate(self) -> tuple[float, float]:
         """Score validation pairs (negatives follow the split's protocol)."""
         self.val_neg = self.sample_negatives(self.val_edges, exclude=set(self.fit_neg))
         pairs = self.val_edges + self.val_neg
@@ -465,7 +509,7 @@ class DTILinkPredictor:
         print(f"[{self.split}/{self.train_negatives}] validation ROC AUC {roc:.4f}, AP {ap:.4f}")
         return roc, ap
 
-    def calibrate(self, method="isotonic"):
+    def calibrate(self, method: str = "isotonic") -> None:
         """Fit a score calibrator on the validation pairs (isotonic or platt)."""
         from sklearn.isotonic import IsotonicRegression
         from sklearn.linear_model import LogisticRegression
@@ -479,7 +523,7 @@ class DTILinkPredictor:
         else:
             raise ValueError(method)
 
-    def _calibrated(self, raw):
+    def _calibrated(self, raw: np.ndarray) -> np.ndarray:
         if self.calibrator is None:
             return raw
         kind, cal = self.calibrator
@@ -487,7 +531,7 @@ class DTILinkPredictor:
             return cal.predict(raw)
         return cal.predict_proba(raw.reshape(-1, 1))[:, 1]
 
-    def evaluate_test(self):
+    def evaluate_test(self) -> dict[str, Any]:
         """Score the test pairs once: metrics, intervals, baselines, calibration curve."""
         exclude = set(self.fit_neg) | set(self.val_neg)
         test_neg = self.sample_negatives(self.test_edges, exclude=exclude)
@@ -532,13 +576,13 @@ class DTILinkPredictor:
         )
         return perf
 
-    def _l3_paths(self, drug_id, target_id):
+    def _l3_paths(self, drug_id: str, target_id: str) -> int:
         """Number of drug-target'-drug'-target paths in the message graph."""
         g = self.train_graph
         drug_targets = set(g.neighbors(drug_id))
         return sum(len(drug_targets & set(g.neighbors(d2))) for d2 in g.neighbors(target_id))
 
-    def compare_baselines(self, pairs, y_test):
+    def compare_baselines(self, pairs: list[Edge], y_test: np.ndarray) -> dict[str, dict[str, Any]]:
         """Unsupervised baselines scored on the message graph, with bootstrap CIs.
 
         Common neighbours is 0 for every drug-target pair in a bipartite graph
@@ -563,7 +607,7 @@ class DTILinkPredictor:
             }
         return results
 
-    def predict_interaction(self, drug_id, target_id):
+    def predict_interaction(self, drug_id: str, target_id: str) -> float:
         """Predict interaction probability for a drug-target pair."""
         if self.model is None:
             raise ValueError("Model not trained. Call train_model() first.")
@@ -571,11 +615,11 @@ class DTILinkPredictor:
         raw = self.model.predict_proba(self.scaler.transform(features.reshape(1, -1)))[:, 1]
         return float(self._calibrated(raw)[0])
 
-    def score_pairs(self, pairs):
+    def score_pairs(self, pairs: list[Edge]) -> np.ndarray:
         """Scores (calibrated if a calibrator is fitted) for many (drug, target) pairs."""
         return self._calibrated(self._raw_scores(pairs))
 
-    def score_candidates(self, node, candidates=None):
+    def score_candidates(self, node: str, candidates: list[str] | None = None) -> dict[str, float]:
         """Scores for every unlinked partner of one node, as {partner_id: score}.
 
         For a drug the partners are targets; for a target, drugs. Partners
@@ -597,7 +641,7 @@ class DTILinkPredictor:
         scores = self._calibrated(self.model.predict_proba(self.scaler.transform(X))[:, 1])
         return dict(zip(candidates, scores))
 
-    def _candidate_matrix(self, node, candidates):
+    def _candidate_matrix(self, node: str, candidates: list[str]) -> np.ndarray:
         """Feature rows for (node, candidate) pairs, in extract_features_safe's column order."""
         is_drug = node in self.drug_nodes
         g = self.train_graph
@@ -640,13 +684,13 @@ class DTILinkPredictor:
             ]
         )
 
-    def save_model(self, filepath):
+    def save_model(self, filepath: str | Path) -> None:
         """Save the trained model."""
         with open(filepath, "wb") as f:
             pickle.dump(self, f)
 
     @staticmethod
-    def load_model(filepath):
+    def load_model(filepath: str | Path) -> "DTILinkPredictor":
         """Load a trained model saved with save_model."""
         with open(filepath, "rb") as f:
             return pickle.load(f)
