@@ -32,21 +32,50 @@ dev = [
 ]
 
 [tool.ruff]
-target-version = "py310"
 line-length = 100
-select = ["E", "F", "I"]
-ignore = []
-exclude = [
-    ".venv",
-    "__pycache__",
-    ".git",
+target-version = "py311"
+# ruff format rewrites code blocks inside Markdown; prose is not its job.
+exclude = [".venv", "__pycache__", ".git", "*.md"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F",      # pycodestyle, pyflakes
+    "I",                # import order: stdlib, third-party, local
+    "B",                # bugbear: mutable defaults, bare except via B001/E722
+    "ANN",              # type hints on every signature
+    "ARG",              # unused arguments
+    "PLR0913",          # too many parameters
+    "PLR2004",          # magic numbers
+    "C901",             # complexity
+    "T20",              # print statements
+    "ERA",              # commented-out code
+    "FBT",              # boolean flag parameters
+    "RET",              # return early / consistent returns
+    "SIM",              # simplify
+    "UP",               # modern syntax, X | None
+    "BLE",              # blind except Exception
+    "TRY",              # raise specific, no bare Exception
 ]
+ignore = ["ANN401", "TRY003", "E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR2004", "ANN", "ARG"]
+"test_*.py" = ["PLR2004", "ANN", "ARG"]
+
+[tool.ruff.lint.pylint]
+max-args = 4
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+lines-after-imports = 2
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
-skip-magic-trailing-comma = false
-line-ending = "auto"
+line-ending = "lf"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
